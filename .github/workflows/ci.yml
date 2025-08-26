@@ -51,11 +51,14 @@ jobs:
 
       # Update README from ONE leg only (3.11) and only on main,
       # but run even if tests failed so the badge reflects failures.
-      - name: Update README badges (tests + coverage)
+      - name: Update README badges (CI + tests + coverage, single line)
         if: always() && github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BRANCH_NAME: main
         run: |
           python - << 'PY'
-          import pathlib, re, sys
+          import os, pathlib, re, sys
           import xml.etree.ElementTree as ET
           from urllib.parse import quote
 
@@ -105,7 +108,7 @@ jobs:
           else:
               test_color = "red"
 
-          tests_badge = f"https://img.shields.io/badge/{quote('Tests')}-{quote(f'{passed}/{total} passing')}/{test_color}"
+          tests_badge = f"https://img.shields.io/badge/{quote('Tests')}-{quote(f'{passed}/{total} passing')}-{test_color}"
 
           # --- Parse coverage from coverage.xml (Cobertura) ---
           try:
@@ -123,25 +126,31 @@ jobs:
 
           coverage_badge = f"https://img.shields.io/badge/{quote('Coverage')}-{quote(str(pct)+'%')}-{cov_color}"
 
-          # --- Replace blocks in README ---
+          # --- CI badge (static, included in same single line) ---
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          branch = os.environ.get("BRANCH_NAME", "main")
+          ci_img = f"https://github.com/{repo}/actions/workflows/ci.yml/badge.svg?branch={quote(branch)}"
+          ci_url = f"https://github.com/{repo}/actions/workflows/ci.yml"
+
+          # --- Replace ONE combined block in README on a single line ---
+          start = "<!-- BADGES:START -->"
+          end   = "<!-- BADGES:END -->"
+          pattern = rf"({re.escape(start)})(.*?)({re.escape(end)})"
+
+          # single line with three badges: CI, Tests, Coverage
+          line = f"[![CI]({ci_img})]({ci_url}) ![Tests]({tests_badge}) ![Coverage]({coverage_badge})"
+          replacement = rf"\1\n{line}\n\3"
+
           text0 = readme.read_text(encoding="utf-8")
+          text1, n = re.subn(pattern, replacement, text0, flags=re.S)
 
-          def replace_block(text, start, end, url, alt):
-              pattern = rf"({re.escape(start)})(.*?)({re.escape(end)})"
-              replacement = rf"\1\n![{alt}]({url})\n\3"
-              new_text, n = re.subn(pattern, replacement, text, flags=re.S)
-              return new_text, n
-
-          text1, n1 = replace_block(text0, "<!-- TESTS_BADGE:START -->", "<!-- TESTS_BADGE:END -->", tests_badge, "Tests")
-          text2, n2 = replace_block(text1, "<!-- COVERAGE_BADGE:START -->", "<!-- COVERAGE_BADGE:END -->", coverage_badge, "Coverage")
-
-          if (n1 + n2) == 0:
-              print("Badge markers not found in README.md; skipping.")
+          if n == 0:
+              print("Combined BADGES markers not found in README.md; skipping.")
               sys.exit(0)
 
-          if text2 != text0:
-              readme.write_text(text2, encoding="utf-8")
-              print("README badges updated.")
+          if text1 != text0:
+              readme.write_text(text1, encoding="utf-8")
+              print("README badges updated (single line).")
           else:
               print("README already up to date.")
           PY
@@ -156,5 +165,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git commit -m "chore: update tests & coverage badges [skip ci]"
+          git commit -m "chore: update badges (single line) [skip ci]"
           git push
