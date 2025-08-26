@@ -11,16 +11,20 @@ jobs:
   tests:
     name: Unit tests (pytest)
     runs-on: ubuntu-latest
+    # We push with your PAT, so permissions here don't matter for the push.
     permissions:
-      contents: write  # needed because this job commits README updates
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - name: Checkout
+      - name: Checkout (no default token creds)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false  # important: we will push with your PAT
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,27 +38,22 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 
-      # Run tests WITHOUT `|| true` so the step fails if tests fail.
-      # Pytest still writes results.xml and coverage.xml on failure.
       - name: Run tests (produce JUnit + coverage)
         run: |
           pytest -q --maxfail=1 --disable-warnings \
             --junitxml=results.xml \
             --cov=. --cov-report=xml
 
-      # If pytest crashed before creating the files, make safe fallbacks.
       - name: Ensure reports exist (fallbacks)
         if: always()
         run: |
           test -f results.xml || echo '<testsuite tests="0" errors="0" failures="0" skipped="0"></testsuite>' > results.xml
           test -f coverage.xml || echo '<coverage line-rate="0.0"></coverage>' > coverage.xml
 
-      # Update README from ONE leg only (3.11) and only on main,
-      # but run even if tests failed so the badge reflects failures.
-      - name: Update README badges (CI + tests + coverage, single line)
+      - name: Update README badges (single line)
         if: always() && github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
         env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          REPO_SLUG: ${{ github.repository }}
           BRANCH_NAME: main
         run: |
           python - << 'PY'
@@ -67,7 +66,7 @@ jobs:
               print("README.md not found; skipping badge update.")
               sys.exit(0)
 
-          # --- Parse tests from results.xml (JUnit) ---
+          # --- Parse tests (JUnit) ---
           try:
               root = ET.parse("results.xml").getroot()
           except Exception as e:
@@ -75,48 +74,48 @@ jobs:
               sys.exit(0)
 
           def gi(node, attr):
-              v = node.attrib.get(attr, "0")
-              try: return int(float(v))
-              except: return 0
+            v = node.attrib.get(attr, "0")
+            try: return int(float(v))
+            except: return 0
 
           def sum_suite(node):
-              return {
-                  "tests": gi(node, "tests"),
-                  "errors": gi(node, "errors"),
-                  "failures": gi(node, "failures"),
-                  "skipped": gi(node, "skipped") or gi(node, "disabled"),
-              }
+            return {
+              "tests": gi(node, "tests"),
+              "errors": gi(node, "errors"),
+              "failures": gi(node, "failures"),
+              "skipped": gi(node, "skipped") or gi(node, "disabled"),
+            }
 
           if root.tag == "testsuite":
-              t = sum_suite(root)
+            t = sum_suite(root)
           else:
-              t = {"tests":0,"errors":0,"failures":0,"skipped":0}
-              for ts in root.findall(".//testsuite"):
-                  tt = sum_suite(ts)
-                  for k in t: t[k] += tt[k]
+            t = {"tests":0,"errors":0,"failures":0,"skipped":0}
+            for ts in root.findall(".//testsuite"):
+              tt = sum_suite(ts)
+              for k in t: t[k] += tt[k]
 
           total  = t["tests"]
           failed = t["failures"] + t["errors"]
           passed = max(0, total - failed - t["skipped"])
 
           if total == 0:
-              test_color = "lightgrey"
+            test_color = "lightgrey"
           elif failed == 0 and passed == total:
-              test_color = "brightgreen"
+            test_color = "brightgreen"
           elif failed == 0:
-              test_color = "yellow"
+            test_color = "yellow"
           else:
-              test_color = "red"
+            test_color = "red"
 
           tests_badge = f"https://img.shields.io/badge/{quote('Tests')}-{quote(f'{passed}/{total} passing')}-{test_color}"
 
-          # --- Parse coverage from coverage.xml (Cobertura) ---
+          # --- Parse coverage (Cobertura) ---
           try:
-              cov_root = ET.parse("coverage.xml").getroot()
-              line_rate = float(cov_root.attrib.get("line-rate", "0")) * 100.0
+            cov_root = ET.parse("coverage.xml").getroot()
+            line_rate = float(cov_root.attrib.get("line-rate", "0")) * 100.0
           except Exception as e:
-              print("Failed to parse coverage.xml:", e)
-              line_rate = 0.0
+            print("Failed to parse coverage.xml:", e)
+            line_rate = 0.0
 
           pct = round(line_rate, 1)
           if pct >= 90: cov_color = "brightgreen"
@@ -126,18 +125,16 @@ jobs:
 
           coverage_badge = f"https://img.shields.io/badge/{quote('Coverage')}-{quote(str(pct)+'%')}-{cov_color}"
 
-          # --- CI badge (static, included in same single line) ---
-          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          # --- CI badge (same line) ---
+          repo = os.environ["REPO_SLUG"]
           branch = os.environ.get("BRANCH_NAME", "main")
           ci_img = f"https://github.com/{repo}/actions/workflows/ci.yml/badge.svg?branch={quote(branch)}"
           ci_url = f"https://github.com/{repo}/actions/workflows/ci.yml"
 
-          # --- Replace ONE combined block in README on a single line ---
+          # --- Replace block ---
           start = "<!-- BADGES:START -->"
           end   = "<!-- BADGES:END -->"
           pattern = rf"({re.escape(start)})(.*?)({re.escape(end)})"
-
-          # single line with three badges: CI, Tests, Coverage
           line = f"[![CI]({ci_img})]({ci_url}) ![Tests]({tests_badge}) ![Coverage]({coverage_badge})"
           replacement = rf"\1\n{line}\n\3"
 
@@ -145,25 +142,31 @@ jobs:
           text1, n = re.subn(pattern, replacement, text0, flags=re.S)
 
           if n == 0:
-              print("Combined BADGES markers not found in README.md; skipping.")
-              sys.exit(0)
+            print("Combined BADGES markers not found; skipping.")
+            sys.exit(0)
 
           if text1 != text0:
-              readme.write_text(text1, encoding="utf-8")
-              print("README badges updated (single line).")
+            readme.write_text(text1, encoding="utf-8")
+            print("README badges updated (single line).")
           else:
-              print("README already up to date.")
+            print("README already up to date.")
           PY
 
-      - name: Commit README update (if changed)
+      - name: Commit & push to main as MadeInShineA (bypass PR rules)
         if: always() && github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
+        env:
+          GH_TOKEN: ${{ secrets.MADEINSHINEA_TOKEN }}
         run: |
           if git diff --quiet README.md; then
             echo "No README changes."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git config user.name "MadeInShineA"
+          git config user.email "your-email@example.com"  # optional; use the email tied to your GitHub account
+
+          # Use your PAT for push (so the actor is your user)
           git add README.md
           git commit -m "chore: update badges (single line) [skip ci]"
-          git push
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git
+          git push origin HEAD:main
