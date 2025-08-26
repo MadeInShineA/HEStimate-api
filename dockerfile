@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # (Optional) bump to force a rebuild if cache gets sticky
-ARG BUILD_ID=1
+ARG BUILD_ID=3
 
 # Install deps first (better layer caching)
 COPY requirements.txt .
