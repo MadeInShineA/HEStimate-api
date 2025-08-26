@@ -32,3 +32,11 @@ FastAPI automatically generates an interactive documentation at:
 ```
 http://127.0.0.1:8000/docs
 ```
+
+## Unit Tests
+
+Run the tests:
+
+```
+pytest -q
+```
