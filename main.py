@@ -22,6 +22,7 @@ def b64_to_ndarray(b64: str) -> np.ndarray:
         raise HTTPException(status_code=400, detail="Could not decode image")
     return img
 
+
 # ---------- Models
 class VerifyRequest(BaseModel):
     image: str
@@ -33,6 +34,11 @@ class CompareRequest(BaseModel):
 
 
 class VerifyResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class CompareResponse(BaseModel):
     success: bool
     message: str
 
@@ -56,7 +62,7 @@ async def verify(payload: VerifyRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No face detected: {e}")
-    
+
     if len(faces) != 1:
         raise HTTPException(
             status_code=400, detail="Please take a picture with exactly 1 person"
@@ -74,12 +80,12 @@ async def verify(payload: VerifyRequest):
         return {"success": True, "message": "Face verified and appears real"}
 
 
-@app.post("/compare", status_code=200)
-async def compare(payload: CompareRequest) -> bool:
+@app.post("/compare", status_code=200, response_model=CompareResponse)
+async def compare(payload: CompareRequest):
     img1 = b64_to_ndarray(payload.image1)
     img2 = b64_to_ndarray(payload.image2)
     try:
-        result = DeepFace.verify(
+        DeepFace.verify(
             img1_path=img1,
             img2_path=img2,
             detector_backend="retinaface",
@@ -88,10 +94,12 @@ async def compare(payload: CompareRequest) -> bool:
             enforce_detection=True,
             align=True,
         )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=f"File not found: {str(e)}")
-    return bool(result.get("verified", False))
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
+
+    return {"success": True, "message": "Face verified and appears real"}
