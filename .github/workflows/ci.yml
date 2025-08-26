@@ -5,6 +5,10 @@ on:
     branches: [ "**" ]
   pull_request:
     branches: [ "**" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   tests:
@@ -29,12 +33,24 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # coverage is optional
           pip install pytest pytest-cov
 
       - name: Run tests
+        # We always produce results.xml and coverage.xml, even on failure, so the badge can update.
         run: |
-          pytest -q --maxfail=1 --disable-warnings --cov=. --cov-report=xml
+          set -o pipefail
+          pytest -q --maxfail=1 --disable-warnings \
+            --junitxml=results.xml \
+            --cov=. --cov-report=xml || true
+          test -f results.xml || echo '<testsuite tests="0" errors="0" failures="0" skipped="0"></testsuite>' > results.xml
+          test -f coverage.xml || echo '<coverage line-rate="0.0"></coverage>' > coverage.xml
+
+      - name: Upload junit results (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.python-version }}
+          path: results.xml
 
       - name: Upload coverage xml (artifact)
         if: always()
@@ -42,3 +58,138 @@ jobs:
         with:
           name: coverage-${{ matrix.python-version }}
           path: coverage.xml
+
+  badges:
+    name: Update README badges
+    needs: tests
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write   # needed to commit README updates
+
+    env:
+      TARGET_PY: "3.11"   # choose which matrix Python to base badges on
+
+    steps:
+      - name: Checkout (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download artifacts (results + coverage for TARGET_PY)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: |
+            results-${{ env.TARGET_PY }}
+            coverage-${{ env.TARGET_PY }}
+          merge-multiple: true
+
+      - name: Update README badges
+        run: |
+          python - << 'PY'
+          import pathlib, re, sys
+          import xml.etree.ElementTree as ET
+          from urllib.parse import quote
+
+          readme = pathlib.Path("README.md")
+          if not readme.exists():
+              print("README.md not found; skipping badge update.")
+              sys.exit(0)
+
+          # --- Parse tests from results.xml (JUnit) ---
+          try:
+              root = ET.parse("results.xml").getroot()
+          except Exception as e:
+              print("Failed to parse results.xml:", e)
+              sys.exit(0)
+
+          def gi(node, attr):
+              v = node.attrib.get(attr, "0")
+              try: return int(float(v))
+              except: return 0
+
+          def sum_suite(node):
+              return {
+                  "tests":   gi(node, "tests"),
+                  "errors":  gi(node, "errors"),
+                  "failures":gi(node, "failures"),
+                  "skipped": gi(node, "skipped") or gi(node, "disabled"),
+              }
+
+          if root.tag == "testsuite":
+              t = sum_suite(root)
+          else:
+              t = {"tests":0,"errors":0,"failures":0,"skipped":0}
+              for ts in root.findall(".//testsuite"):
+                  tt = sum_suite(ts)
+                  for k in t: t[k] += tt[k]
+
+          total = t["tests"]
+          failed = t["failures"] + t["errors"]
+          passed = max(0, total - failed - t["skipped"])
+
+          if total == 0:
+              test_color = "lightgrey"
+          elif failed == 0 and passed == total:
+              test_color = "brightgreen"
+          elif failed == 0:
+              test_color = "yellow"
+          else:
+              test_color = "red"
+
+          test_msg = f"{passed}/{total} passing"
+          tests_badge = f"https://img.shields.io/badge/{quote('tests')}-{quote(test_msg)}/{test_color}"
+
+          # --- Parse coverage from coverage.xml (Cobertura) ---
+          try:
+              cov_root = ET.parse("coverage.xml").getroot()
+              line_rate = float(cov_root.attrib.get("line-rate", "0")) * 100.0
+          except Exception as e:
+              print("Failed to parse coverage.xml:", e)
+              line_rate = 0.0
+
+          pct = round(line_rate, 1)
+          if pct >= 90: cov_color = "brightgreen"
+          elif pct >= 75: cov_color = "yellowgreen"
+          elif pct >= 50: cov_color = "orange"
+          else: cov_color = "red" if total > 0 else "lightgrey"
+
+          cov_msg = f"{pct}%"
+          coverage_badge = f"https://img.shields.io/badge/{quote('coverage')}-{quote(cov_msg)}-{cov_color}"
+
+          # --- Replace blocks in README ---
+          text = readme.read_text(encoding="utf-8")
+
+          def replace_block(start, end, url, alt):
+              pattern = rf"({re.escape(start)})(.*?)({re.escape(end)})"
+              replacement = rf"\\1\n![{alt}]({url})\n\\3"
+              new_text, n = re.subn(pattern, replacement, text, flags=re.S)
+              return new_text, n
+
+          new_text, n1 = replace_block("<!-- TESTS_BADGE:START -->", "<!-- TESTS_BADGE:END -->", tests_badge, "Tests")
+          text = new_text
+          new_text, n2 = replace_block("<!-- COVERAGE_BADGE:START -->", "<!-- COVERAGE_BADGE:END -->", coverage_badge, "Coverage")
+          final = new_text
+
+          if (n1 + n2) == 0:
+              print("Badge markers not found in README.md; skipping update.")
+              sys.exit(0)
+
+          if final != readme.read_text(encoding="utf-8"):
+              readme.write_text(final, encoding="utf-8")
+              print("README badges updated.")
+          else:
+              print("README already up to date.")
+          PY
+
+      - name: Commit README update (if changed)
+        run: |
+          if git diff --quiet README.md; then
+            echo "No README changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: update tests & coverage badges [skip ci]"
+          git push
