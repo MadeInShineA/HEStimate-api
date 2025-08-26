@@ -44,7 +44,9 @@ def test_compare_same_person():
     img2_b64 = load_image_as_base64("tests/images/olivier2.jpg")
     resp = client.post("/compare", json={"image1": img1_b64, "image2": img2_b64})
     assert resp.status_code == 200
-    assert resp.json() is True
+    data = resp.json()
+    assert data["success"] is True
+    assert "Face verified and appears real" == data["message"]
 
 
 @pytest.mark.integration
@@ -55,7 +57,7 @@ def test_compare_different_persons():
     print(resp)
     assert resp.status_code == 400
     data = resp.json()
-    assert "No face detected" in data["detail"]
+    assert "Faces do not match" in data["detail"]
 
 
 @pytest.mark.integration

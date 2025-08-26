@@ -85,7 +85,7 @@ async def compare(payload: CompareRequest):
     img1 = b64_to_ndarray(payload.image1)
     img2 = b64_to_ndarray(payload.image2)
     try:
-        DeepFace.verify(
+        result = DeepFace.verify(
             img1_path=img1,
             img2_path=img2,
             detector_backend="retinaface",
@@ -102,4 +102,6 @@ async def compare(payload: CompareRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
 
+    if not result["verified"]:
+        raise HTTPException(status_code=400, detail="Faces do not match")
     return {"success": True, "message": "Face verified and appears real"}
