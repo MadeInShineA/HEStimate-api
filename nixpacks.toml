@@ -1,14 +1,3 @@
-# Tell Nixpacks to use the Python provider
-providers = ["python"]
-
-# Install the OS libraries OpenCV/DeepFace need
 [phases.setup]
-# Use Nix packages (preferred). "..." keeps defaults and appends ours.
-nixPkgs = ["...", "ffmpeg", "glib", "libGL"]
-
-# Optional: if you still have missing libs, also add build tools:
-# nixPkgs = ["...", "ffmpeg", "glib", "libGL", "gcc", "gnumake", "pkg-config"]
-
-# Define how to start your app
-[start]
-cmd = "python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
+# Ask the Railway builder to install these OS packages
+nixPkgs = ["libGL", "glib", "ffmpeg", "gcc", "gnumake"]
