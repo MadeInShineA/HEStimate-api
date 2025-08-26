@@ -105,7 +105,7 @@ jobs:
           else:
               test_color = "red"
 
-          tests_badge = f"https://img.shields.io/badge/{quote('tests')}-{quote(f'{passed}/{total} passing')}/{test_color}"
+          tests_badge = f"https://img.shields.io/badge/{quote('Tests')}-{quote(f'{passed}/{total} passing')}/{test_color}"
 
           # --- Parse coverage from coverage.xml (Cobertura) ---
           try:
@@ -121,7 +121,7 @@ jobs:
           elif pct >= 50: cov_color = "orange"
           else: cov_color = "red" if total > 0 else "lightgrey"
 
-          coverage_badge = f"https://img.shields.io/badge/{quote('coverage')}-{quote(str(pct)+'%')}-{cov_color}"
+          coverage_badge = f"https://img.shields.io/badge/{quote('Coverage')}-{quote(str(pct)+'%')}-{cov_color}"
 
           # --- Replace blocks in README ---
           text0 = readme.read_text(encoding="utf-8")
