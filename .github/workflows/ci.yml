@@ -7,9 +7,6 @@ on:
     branches: [ "**" ]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   tests:
     name: Unit tests (pytest)
@@ -35,8 +32,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 
-      - name: Run tests
-        # We always produce results.xml and coverage.xml, even on failure, so the badge can update.
+      - name: Run tests (always produce reports)
         run: |
           set -o pipefail
           pytest -q --maxfail=1 --disable-warnings \
@@ -45,46 +41,11 @@ jobs:
           test -f results.xml || echo '<testsuite tests="0" errors="0" failures="0" skipped="0"></testsuite>' > results.xml
           test -f coverage.xml || echo '<coverage line-rate="0.0"></coverage>' > coverage.xml
 
-      - name: Upload junit results (artifact)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: results-${{ matrix.python-version }}
-          path: results.xml
-
-      - name: Upload coverage xml (artifact)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.python-version }}
-          path: coverage.xml
-
-  badges:
-    name: Update README badges
-    needs: tests
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: write   # needed to commit README updates
-
-    env:
-      TARGET_PY: "3.11"   # choose which matrix Python to base badges on
-
-    steps:
-      - name: Checkout (main)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Download artifacts (results + coverage for TARGET_PY)
-        uses: actions/download-artifact@v4
-        with:
-          pattern: |
-            results-${{ env.TARGET_PY }}
-            coverage-${{ env.TARGET_PY }}
-          merge-multiple: true
-
-      - name: Update README badges
+      # Only one matrix leg (3.11) updates README on main to avoid races
+      - name: Update README badges (tests + coverage)
+        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
+        permissions:
+          contents: write
         run: |
           python - << 'PY'
           import pathlib, re, sys
@@ -110,9 +71,9 @@ jobs:
 
           def sum_suite(node):
               return {
-                  "tests":   gi(node, "tests"),
-                  "errors":  gi(node, "errors"),
-                  "failures":gi(node, "failures"),
+                  "tests": gi(node, "tests"),
+                  "errors": gi(node, "errors"),
+                  "failures": gi(node, "failures"),
                   "skipped": gi(node, "skipped") or gi(node, "disabled"),
               }
 
@@ -124,7 +85,7 @@ jobs:
                   tt = sum_suite(ts)
                   for k in t: t[k] += tt[k]
 
-          total = t["tests"]
+          total  = t["tests"]
           failed = t["failures"] + t["errors"]
           passed = max(0, total - failed - t["skipped"])
 
@@ -137,8 +98,7 @@ jobs:
           else:
               test_color = "red"
 
-          test_msg = f"{passed}/{total} passing"
-          tests_badge = f"https://img.shields.io/badge/{quote('tests')}-{quote(test_msg)}/{test_color}"
+          tests_badge = f"https://img.shields.io/badge/{quote('tests')}-{quote(f'{passed}/{total} passing')}/{test_color}"
 
           # --- Parse coverage from coverage.xml (Cobertura) ---
           try:
@@ -154,35 +114,33 @@ jobs:
           elif pct >= 50: cov_color = "orange"
           else: cov_color = "red" if total > 0 else "lightgrey"
 
-          cov_msg = f"{pct}%"
-          coverage_badge = f"https://img.shields.io/badge/{quote('coverage')}-{quote(cov_msg)}-{cov_color}"
+          coverage_badge = f"https://img.shields.io/badge/{quote('coverage')}-{quote(str(pct)+'%')}-{cov_color}"
 
           # --- Replace blocks in README ---
-          text = readme.read_text(encoding="utf-8")
+          text0 = readme.read_text(encoding="utf-8")
 
-          def replace_block(start, end, url, alt):
+          def replace_block(text, start, end, url, alt):
               pattern = rf"({re.escape(start)})(.*?)({re.escape(end)})"
-              replacement = rf"\\1\n![{alt}]({url})\n\\3"
+              replacement = rf"\1\n![{alt}]({url})\n\3"
               new_text, n = re.subn(pattern, replacement, text, flags=re.S)
               return new_text, n
 
-          new_text, n1 = replace_block("<!-- TESTS_BADGE:START -->", "<!-- TESTS_BADGE:END -->", tests_badge, "Tests")
-          text = new_text
-          new_text, n2 = replace_block("<!-- COVERAGE_BADGE:START -->", "<!-- COVERAGE_BADGE:END -->", coverage_badge, "Coverage")
-          final = new_text
+          text1, n1 = replace_block(text0, "<!-- TESTS_BADGE:START -->", "<!-- TESTS_BADGE:END -->", tests_badge, "Tests")
+          text2, n2 = replace_block(text1, "<!-- COVERAGE_BADGE:START -->", "<!-- COVERAGE_BADGE:END -->", coverage_badge, "Coverage")
 
           if (n1 + n2) == 0:
-              print("Badge markers not found in README.md; skipping update.")
+              print("Badge markers not found in README.md; skipping.")
               sys.exit(0)
 
-          if final != readme.read_text(encoding="utf-8"):
-              readme.write_text(final, encoding="utf-8")
+          if text2 != text0:
+              readme.write_text(text2, encoding="utf-8")
               print("README badges updated.")
           else:
               print("README already up to date.")
           PY
 
       - name: Commit README update (if changed)
+        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
         run: |
           if git diff --quiet README.md; then
             echo "No README changes."
