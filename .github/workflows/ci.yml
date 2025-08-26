@@ -2,19 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ "**" ]
+    branches: ["**"]
   pull_request:
-    branches: [ "**" ]
+    branches: ["**"]
   workflow_dispatch:
 
 jobs:
   tests:
     name: Unit tests (pytest)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed because this job commits README updates
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.10", "3.11", "3.12" ]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - name: Checkout
@@ -32,20 +34,25 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 
-      - name: Run tests (always produce reports)
+      # Run tests WITHOUT `|| true` so the step fails if tests fail.
+      # Pytest still writes results.xml and coverage.xml on failure.
+      - name: Run tests (produce JUnit + coverage)
         run: |
-          set -o pipefail
           pytest -q --maxfail=1 --disable-warnings \
             --junitxml=results.xml \
-            --cov=. --cov-report=xml || true
+            --cov=. --cov-report=xml
+
+      # If pytest crashed before creating the files, make safe fallbacks.
+      - name: Ensure reports exist (fallbacks)
+        if: always()
+        run: |
           test -f results.xml || echo '<testsuite tests="0" errors="0" failures="0" skipped="0"></testsuite>' > results.xml
           test -f coverage.xml || echo '<coverage line-rate="0.0"></coverage>' > coverage.xml
 
-      # Only one matrix leg (3.11) updates README on main to avoid races
+      # Update README from ONE leg only (3.11) and only on main,
+      # but run even if tests failed so the badge reflects failures.
       - name: Update README badges (tests + coverage)
-        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
-        permissions:
-          contents: write
+        if: always() && github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
         run: |
           python - << 'PY'
           import pathlib, re, sys
@@ -140,7 +147,7 @@ jobs:
           PY
 
       - name: Commit README update (if changed)
-        if: github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
+        if: always() && github.ref == 'refs/heads/main' && matrix.python-version == '3.11'
         run: |
           if git diff --quiet README.md; then
             echo "No README changes."
