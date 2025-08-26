@@ -1,3 +1,0 @@
-[phases.setup]
-# Ask the Railway builder to install these OS packages
-nixPkgs = ["libGL", "glib", "ffmpeg", "gcc", "gnumake"]
