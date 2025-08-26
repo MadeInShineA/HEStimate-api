@@ -52,4 +52,8 @@ async def compare(payload: CompareRequest) -> bool:
         result = DeepFace.verify(img1_path=payload.image1, image2=payload.image2)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=f"File not found: {str(e)}")
     return result["verified"]
