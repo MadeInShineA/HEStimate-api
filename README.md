@@ -1,6 +1,6 @@
 # HEStimate API
 <!-- BADGES:START -->
-[![CI](https://github.com/MadeInShineA/HEStimate-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MadeInShineA/HEStimate-api/actions/workflows/ci.yml) ![Tests](https://img.shields.io/badge/Tests-10/10%20passing-brightgreen) ![Coverage](https://img.shields.io/badge/Coverage-95.2%25-brightgreen)
+[![CI](https://github.com/MadeInShineA/HEStimate-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MadeInShineA/HEStimate-api/actions/workflows/ci.yml) ![Tests](https://img.shields.io/badge/Tests-10/10%20passing-brightgreen) ![Coverage](https://img.shields.io/badge/Coverage-94.8%25-brightgreen)
 <!-- BADGES:END -->
 
 FastAPI API for **face verification and comparison** using DeepFace.
