@@ -21,15 +21,16 @@ def load_image_as_base64(path):
 @pytest.mark.unit
 def test_b64_to_ndarray_with_data_uri_prefix():
     from main import b64_to_ndarray
+
     # prepare a tiny 1x1 black PNG image
     import cv2
     import numpy as np
-    import base64
+
     img = np.zeros((1, 1, 3), dtype=np.uint8)
     _, buf = cv2.imencode(".png", img)
     img_b64 = base64.b64encode(buf).decode("utf-8")
     data_uri_b64 = f"data:image/png;base64,{img_b64}"
-    
+
     # call the function
     result = b64_to_ndarray(data_uri_b64)
     assert isinstance(result, np.ndarray)
@@ -83,7 +84,6 @@ def test_verify_spoofing():
     assert "Spoofing detected. Please provide a real face image." in data["detail"]
 
 
-
 @pytest.mark.unit
 def test_verify_invalid_base64_rejected():
     # clearly invalid base64
@@ -122,4 +122,3 @@ def test_compare_different_persons():
     assert resp.status_code == 400
     data = resp.json()
     assert "Faces do not match" in data["detail"]
-
