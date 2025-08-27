@@ -1,8 +1,26 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from deepface import DeepFace
+import base64
+import numpy as np
+import cv2
 
 app = FastAPI()
+
+
+def b64_to_ndarray(b64: str) -> np.ndarray:
+    # allow optional data URI prefix
+    if "," in b64:
+        b64 = b64.split(",", 1)[1]
+    try:
+        img_bytes = base64.b64decode(b64, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    buf = np.frombuffer(img_bytes, dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Could not decode image")
+    return img
 
 
 # ---------- Models
@@ -20,6 +38,11 @@ class VerifyResponse(BaseModel):
     message: str
 
 
+class CompareResponse(BaseModel):
+    success: bool
+    message: str
+
+
 # ---------- Routes
 @app.get("/")
 async def root():
@@ -28,7 +51,18 @@ async def root():
 
 @app.post("/verify", status_code=200, response_model=VerifyResponse)
 async def verify(payload: VerifyRequest):
-    faces = DeepFace.extract_faces(img_path=payload.image, anti_spoofing=True)
+    img = b64_to_ndarray(payload.image)
+    try:
+        faces = DeepFace.extract_faces(
+            img_path=img,
+            detector_backend="retinaface",
+            enforce_detection=True,
+            align=True,
+            anti_spoofing=True,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"No face detected: {e}")
+
     if len(faces) != 1:
         raise HTTPException(
             status_code=400, detail="Please take a picture with exactly 1 person"
@@ -46,14 +80,23 @@ async def verify(payload: VerifyRequest):
         return {"success": True, "message": "Face verified and appears real"}
 
 
-@app.post("/compare", status_code=200)
-async def compare(payload: CompareRequest) -> bool:
+@app.post("/compare", status_code=200, response_model=CompareResponse)
+async def compare(payload: CompareRequest):
+    img1 = b64_to_ndarray(payload.image1)
+    img2 = b64_to_ndarray(payload.image2)
     try:
-        result = DeepFace.verify(img1_path=payload.image1, image2=payload.image2)
+        result = DeepFace.verify(
+            img1_path=img1,
+            img2_path=img2,
+            detector_backend="retinaface",
+            model_name="ArcFace",
+            distance_metric="cosine",
+            enforce_detection=True,
+            align=True,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Comparison failed: {str(e)}")
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=400, detail=f"File not found: {str(e)}")
-    return result["verified"]
+
+    if not result["verified"]:
+        raise HTTPException(status_code=400, detail="Faces do not match")
+    return {"success": True, "message": "Face verified and appears real"}

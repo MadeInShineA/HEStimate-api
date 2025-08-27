@@ -43,3 +43,18 @@ Run the tests:
 ```
 pytest -q
 ```
+
+## Coverage
+
+To measure the test coverage of the project:
+
+```
+coverage run -m pytest
+coverage report -m
+```
+
+You can also generate an HTML report for easier navigation:
+
+```
+coverage html
+```
