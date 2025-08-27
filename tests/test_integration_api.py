@@ -37,6 +37,24 @@ def test_verify_no_face_detected():
     assert "No face detected" in data["detail"]
 
 
+@pytest.mark.integration
+def test_verify_two_faces():
+    image_base64 = load_image_as_base64("tests/images/two-faces.jpg")
+    resp = client.post("/verify", json={"image": image_base64})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Please take a picture with exactly 1 person" in data["detail"]
+
+
+@pytest.mark.integration
+def test_verify_spoofing():
+    image_base64 = load_image_as_base64("tests/images/spoofing.jpg")
+    resp = client.post("/verify", json={"image": image_base64})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Spoofing detected. Please provide a real face image." in data["detail"]
+
+
 # ---------- /compare endpoint
 @pytest.mark.integration
 def test_compare_same_person():
@@ -58,24 +76,6 @@ def test_compare_different_persons():
     assert resp.status_code == 400
     data = resp.json()
     assert "Faces do not match" in data["detail"]
-
-
-@pytest.mark.integration
-def test_verify_two_faces():
-    image_base64 = load_image_as_base64("tests/images/two-faces.jpg")
-    resp = client.post("/verify", json={"image": image_base64})
-    assert resp.status_code == 400
-    data = resp.json()
-    assert "Please take a picture with exactly 1 person" in data["detail"]
-
-
-@pytest.mark.integration
-def test_verify_spoofing():
-    image_base64 = load_image_as_base64("tests/images/spoofing.jpg")
-    resp = client.post("/verify", json={"image": image_base64})
-    assert resp.status_code == 400
-    data = resp.json()
-    assert "Spoofing detected. Please provide a real face image." in data["detail"]
 
 
 @pytest.mark.unit

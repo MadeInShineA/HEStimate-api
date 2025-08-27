@@ -1,0 +1,8 @@
+[run]
+omit =
+    */__autograph_generated_file*.py
+    */AppData/Local/Temp/*
+    *config-3.py
+    *config.py
+    */tests/*
+    
