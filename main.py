@@ -36,8 +36,6 @@ def b64_to_ndarray(b64: str) -> np.ndarray:
     return img
 
 
-# wherever those classes currently live
-
 _main_mod = sys.modules.get("__main__")
 if _main_mod is None:
     _main_mod = types.ModuleType("__main__")
@@ -115,8 +113,6 @@ def _get_geo_knn_transformer(pipe):
 # ---------------- Schemas (Price Prediction) ----------------
 # NOTE: No nearest_hesso_name here; proxim_hesso_km is kept
 class EstimatePriceRequest(BaseModel):
-    city: str
-    postal_code: int
     latitude: float
     longitude: float
     surface_m2: float

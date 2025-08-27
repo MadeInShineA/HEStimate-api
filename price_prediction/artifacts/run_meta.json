@@ -1,0 +1,8 @@
+{
+  "target": "price_chf",
+  "random_state": 42,
+  "test_size": 0.2,
+  "cv_splits": 5,
+  "best_model": "Lasso Regression",
+  "created_at": "20250827_161749"
+}

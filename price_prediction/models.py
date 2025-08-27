@@ -40,6 +40,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 ARTIFACT_DIR = os.path.join("artifacts")
 
 
+FORBIDDEN_COLS = {"city", "postal_code"}
+
+
+def drop_forbidden(df: pd.DataFrame) -> pd.DataFrame:
+    return df.drop(columns=[c for c in FORBIDDEN_COLS if c in df.columns])
+
+
 # ----------------- Custom transformers ----------------
 
 
@@ -166,8 +173,7 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     """
     Robust preprocessor (NO 'nearest_hesso_name'; keep proxim_hesso_km):
       - Numerics (scaled): surface_m2, num_rooms, floor, dist_public_transport_km, proxim_hesso_km, latitude, longitude
-      - Target-encode: city (unseen -> global mean)
-      - OneHot: postal_code, type
+      - OneHot: type
       - Booleans: passthrough
       - Geo KNN feature from [latitude, longitude]
     """
@@ -180,13 +186,11 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
         "latitude",
         "longitude",
     ]
-    default_cat_ohe = ["postal_code", "type"]
-    default_te = ["city"]  # ONLY city; nearest_hesso_name removed
+    default_cat_ohe = ["type"]
     default_bool = ["is_furnished", "wifi_incl", "charges_incl", "car_park"]
 
     num_features = [c for c in default_num if c in X.columns]
     cat_ohe_features = [c for c in default_cat_ohe if c in X.columns]
-    te_features = [c for c in default_te if c in X.columns]
     bool_features = [c for c in default_bool if c in X.columns]
 
     ohe = _make_ohe()
@@ -194,11 +198,6 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     pre = ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), num_features),
-            (
-                "te_city",
-                CVTargetEncoder(te_features, n_splits=5, smoothing=50, random_state=42),
-                te_features,
-            ),
             ("cat", ohe, cat_ohe_features),
             ("bool", "passthrough", bool_features),
             ("geo_knn", KNNLocalPrice(n_neighbors=10), ["latitude", "longitude"]),
@@ -424,6 +423,7 @@ if __name__ == "__main__":
             print(f"❌ CSV not found: {csv_path}")
             sys.exit(1)
         df = pd.read_csv(csv_path)
+        df = drop_forbidden(df)
         train_compare_and_save(df, target="price_chf", out_dir=ARTIFACT_DIR)
     else:
         print("Usage: python train_models.py /path/to/data.csv")
