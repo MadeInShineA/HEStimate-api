@@ -9,7 +9,6 @@ app = FastAPI()
 
 
 def b64_to_ndarray(b64: str) -> np.ndarray:
-    # allow optional data URI prefix
     if "," in b64:
         b64 = b64.split(",", 1)[1]
     try:
@@ -55,10 +54,10 @@ async def verify(payload: VerifyRequest):
     try:
         faces = DeepFace.extract_faces(
             img_path=img,
-            detector_backend="retinaface",
             enforce_detection=True,
             align=True,
             anti_spoofing=True,
+            detector_backend="yolov11m"
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No face detected: {e}")
@@ -88,9 +87,8 @@ async def compare(payload: CompareRequest):
         result = DeepFace.verify(
             img1_path=img1,
             img2_path=img2,
-            detector_backend="retinaface",
+            detector_backend="yolov11m",
             model_name="ArcFace",
-            distance_metric="cosine",
             enforce_detection=True,
             align=True,
         )
