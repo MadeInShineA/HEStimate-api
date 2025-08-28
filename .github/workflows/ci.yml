@@ -42,16 +42,6 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov python-dotenv
 
-      - name: Debug API_KEY presence (safe)
-        run: |
-          if [ -z "${API_KEY}" ]; then
-            echo "API_KEY is EMPTY (secret not available in this run)."
-            exit 1
-          else
-            echo "API_KEY length: ${#API_KEY}"
-            printf "%s" "${API_KEY}" | sha256sum | cut -d' ' -f1 | xargs -I{} echo "API_KEY sha256: {}"
-          fi
-
       - name: Run tests (produce JUnit + coverage)
         run: |
           pytest -q --maxfail=1 --disable-warnings \
