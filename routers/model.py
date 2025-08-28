@@ -60,7 +60,7 @@ def _load_allowed_keys() -> List[str]:
     return [k.strip() for k in raw.split(",") if k.strip()]
 
 
-def verify_key(x_obs_token: Optional[str] = Header(default=None, alias="X-OBS-TOKEN")):
+def verify_key(x_obs_token: Optional[str] = Header(default=None, alias="API_KEY")):
     allowed = _load_allowed_keys()
     if not x_obs_token or not allowed:
         raise HTTPException(
