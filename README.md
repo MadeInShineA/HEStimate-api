@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 ## Run the API locally
 ```
-fastapi dev main.py 
+fastapi dev main.py
 ```
 
 The API will be available at:

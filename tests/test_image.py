@@ -20,7 +20,7 @@ def load_image_as_base64(path):
 # ---------- b64_to_ndarray with data URI prefix
 @pytest.mark.unit
 def test_b64_to_ndarray_with_data_uri_prefix():
-    from main import b64_to_ndarray
+    from routers.image import b64_to_ndarray
 
     # prepare a tiny 1x1 black PNG image
     import cv2
