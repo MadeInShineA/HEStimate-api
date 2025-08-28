@@ -63,7 +63,7 @@ def test_add_observations_real_model():
         {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500},
         {"latitude": 46.6, "longitude": 6.6, "price_chf": 1600}
     ]
-    resp = client.post("/observations", json=payload, headers={"X-OBS-TOKEN": os.getenv('OBS_TOKENS')})
+    resp = client.post("/observations", json=payload, headers={"X-OBS-TOKEN": os.getenv('API_KEY')})
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
@@ -88,7 +88,7 @@ def test_add_observations_increases_geo_points():
         {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500},
         {"latitude": 46.6, "longitude": 6.6, "price_chf": 1600}
     ]
-    resp_add = client.post("/observations", json=new_obs, headers={"X-OBS-TOKEN": os.getenv('OBS_TOKENS')})
+    resp_add = client.post("/observations", json=new_obs, headers={"X-OBS-TOKEN": os.getenv('API_KEY')})
     assert resp_add.status_code == 200
     data_add = resp_add.json()
     assert data_add["success"] is True
@@ -124,7 +124,7 @@ def test_high_price_observations_increase_prediction():
         {"latitude": 46.5, "longitude": 6.5, "price_chf": initial_price * 10},
         {"latitude": 46.5005, "longitude": 6.5005, "price_chf": initial_price * 8}
     ]
-    resp_add = client.post("/observations", json=high_price_obs, headers={"X-OBS-TOKEN": os.getenv('OBS_TOKENS')})
+    resp_add = client.post("/observations", json=high_price_obs, headers={"X-OBS-TOKEN": os.getenv('API_KEY')})
     assert resp_add.status_code == 200
     assert resp_add.json()["added"] == 2
 
@@ -192,7 +192,7 @@ def test_estimate_price_missing_or_wrong_fields():
 def test_add_observations_empty_payload():
     empty_payload = []
 
-    resp = client.post("/observations", json=empty_payload, headers={"X-OBS-TOKEN": os.getenv('OBS_TOKENS')})
+    resp = client.post("/observations", json=empty_payload, headers={"X-OBS-TOKEN": os.getenv('API_KEY')})
     assert resp.status_code == 400
     data = resp.json()
     assert "Empty payload." in data['detail']

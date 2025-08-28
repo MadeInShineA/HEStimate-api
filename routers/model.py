@@ -56,7 +56,7 @@ def _get_geo_knn_transformer(pipe):
 
 
 def _load_allowed_keys() -> List[str]:
-    raw = os.getenv("OBS_TOKENS", "")
+    raw = os.getenv("API_KEY", "")
     return [k.strip() for k in raw.split(",") if k.strip()]
 
 
