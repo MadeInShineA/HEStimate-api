@@ -5,4 +5,4 @@ omit =
     *config-3.py
     *config.py
     */tests/*
-    
+    */price_prediction/*

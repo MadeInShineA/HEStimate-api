@@ -32,8 +32,8 @@ def _find_latest_model() -> Path:
 
 def get_price_model():
     global PRICE_MODEL, PRICE_MODEL_NAME
-    if PRICE_MODEL is None:
-        model_path = _find_latest_model()
+    model_path = _find_latest_model()
+    if PRICE_MODEL is None or PRICE_MODEL_NAME != model_path.name:
         PRICE_MODEL = joblib.load(model_path)
         PRICE_MODEL_NAME = model_path.name
     return PRICE_MODEL, PRICE_MODEL_NAME
@@ -57,18 +57,18 @@ def _get_geo_knn_transformer(pipe):
 # ---------------- Schemas (Price Prediction) ----------------
 # NOTE: No nearest_hesso_name here; proxim_hesso_km is kept
 class EstimatePriceRequest(BaseModel):
-    latitude: float
-    longitude: float
-    surface_m2: float
-    num_rooms: int
+    latitude: float = Field(..., ge=-90, le=90, description="Latitude en degrés (-90 à 90)")
+    longitude: float = Field(..., ge=-180, le=180, description="Longitude en degrés (-180 à 180)")
+    surface_m2: float = Field(gt=0, description="Surface en m² (>0)")
+    num_rooms: int = Field(gt=0, description="Nombre de pièces (>0)")
     type: Literal["room", "entire_home"] = "room"
     is_furnished: bool
-    floor: int
+    floor: int = Field(ge=0, description="Étage (>=0)")
     wifi_incl: bool
     charges_incl: bool
     car_park: bool
-    dist_public_transport_km: float
-    proxim_hesso_km: float
+    dist_public_transport_km: float = Field(gt=0, description="Distance transport public en km (>0)")
+    proxim_hesso_km: float = Field(gt=0, description="Distance HES en km (>0)")
 
 
 class EstimatePriceItemResponse(BaseModel):
@@ -114,9 +114,9 @@ async def estimate_price(
 
     # Normalize to list of dicts
     if isinstance(payload, list):
-        records = [p.dict() for p in payload]
+        records = [p.model_dump() for p in payload]
     else:
-        records = [payload.dict()]
+        records = [payload.model_dump()]
 
     df = pd.DataFrame.from_records(records)
     try:
@@ -160,9 +160,13 @@ async def add_observations(items: List[LabeledObservation]):
         raise HTTPException(status_code=400, detail=f"Update failed: {e}")
 
     # Persist a live copy so improvements survive restarts
+
     live_path = ARTIFACT_DIR / "best_model_live.joblib"
     try:
         joblib.dump(pipe, live_path)
+        global PRICE_MODEL, PRICE_MODEL_NAME
+        PRICE_MODEL = pipe
+        PRICE_MODEL_NAME = live_path.name
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Could not persist updated model: {e}"
@@ -183,8 +187,7 @@ async def model_info():
         pipe, model_name = get_price_model()
         geo_knn = _get_geo_knn_transformer(pipe)
         total = 0 if getattr(geo_knn, "_xy", None) is None else len(geo_knn._xy)
-        n_baseline = getattr(geo_knn, "_n_baseline", total)
-        live_only = max(0, total - n_baseline)
+        live_only = max(0, total)
         return ModelInfo(artifact=model_name, geo_points=live_only)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Model info error: {e}")
