@@ -22,8 +22,7 @@ jobs:
     # 🔐 Expose GitHub Secrets as environment variables for your tests/code
     # Add your secrets in: Settings → Secrets and variables → Actions
     env:
-      # Example: your Python code/tests can read this with os.getenv("MY_SECRET")
-      MY_SECRET: ${{ secrets.API_KEY }}
+      API_KEY: ${{ secrets.API_KEY }}
 
     steps:
       - name: Checkout (no default token creds)
@@ -46,7 +45,6 @@ jobs:
 
       - name: Run tests (produce JUnit + coverage)
         run: |
-          # Your tests can access env vars like MY_SECRET
           pytest -q --maxfail=1 --disable-warnings \
             --junitxml=results.xml \
             --cov=. --cov-report=xml
