@@ -11,20 +11,24 @@ jobs:
   tests:
     name: Unit tests (pytest)
     runs-on: ubuntu-latest
-    # We push with your PAT, so permissions here don't matter for the push.
     permissions:
       contents: write
+
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+
+    # Expose the secret to tests/code as API_KEY
+    env:
+      API_KEY: ${{ secrets.API_KEY }}
 
     steps:
       - name: Checkout (no default token creds)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false  # important: we will push with your PAT
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov python-dotenv
 
       - name: Run tests (produce JUnit + coverage)
         run: |
@@ -139,13 +143,11 @@ jobs:
           replacement = rf"\1\n{line}\n\3"
 
           text0 = readme.read_text(encoding="utf-8")
-          text1, n = re.subn(pattern, replacement, text0, flags=re.S)
+          text1, n = re.subn(pattern, replacement, text1 := re.sub(pattern, replacement, text0, flags=re.S), flags=re.S)
+          # Fix duplicated line from the previous statement if needed:
+          text1, _ = re.subn(r"(\n\[!\[CI\].*Coverage\)\]\n)+", lambda m: "\n" + m.group(0).splitlines()[0] + "\n", text1, count=1)
 
-          if n == 0:
-            print("Combined BADGES markers not found; skipping.")
-            sys.exit(0)
-
-          if text1 != text0:
+          if text0 != text1:
             readme.write_text(text1, encoding="utf-8")
             print("README badges updated (single line).")
           else:
@@ -163,9 +165,8 @@ jobs:
           fi
 
           git config user.name "MadeInShineA"
-          git config user.email "your-email@example.com"  # optional; use the email tied to your GitHub account
+          git config user.email "your-email@example.com"
 
-          # Use your PAT for push (so the actor is your user)
           git add README.md
           git commit -m "chore: update badges (single line) [skip ci]"
           git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git

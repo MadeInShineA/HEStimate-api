@@ -1,11 +1,12 @@
 from typing import List, Union, Optional, Literal
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header, status, Depends
 from pydantic import BaseModel, Field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import joblib
+import os, hmac
 
 
 router = APIRouter()
@@ -54,11 +55,34 @@ def _get_geo_knn_transformer(pipe):
     return geo_knn
 
 
+def _load_allowed_keys() -> List[str]:
+    raw = os.getenv("API_KEY", "")
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+def verify_key(api_key: Optional[str] = Header(default=None, alias="API-KEY")):
+    allowed = _load_allowed_keys()
+    if not api_key or not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid token."
+        )
+    for k in allowed:
+        if hmac.compare_digest(api_key, k):
+            return True
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid token."
+    )
+
+
 # ---------------- Schemas (Price Prediction) ----------------
 # NOTE: No nearest_hesso_name here; proxim_hesso_km is kept
 class EstimatePriceRequest(BaseModel):
-    latitude: float = Field(..., ge=-90, le=90, description="Latitude en degrés (-90 à 90)")
-    longitude: float = Field(..., ge=-180, le=180, description="Longitude en degrés (-180 à 180)")
+    latitude: float = Field(
+        ..., ge=-90, le=90, description="Latitude en degrés (-90 à 90)"
+    )
+    longitude: float = Field(
+        ..., ge=-180, le=180, description="Longitude en degrés (-180 à 180)"
+    )
     surface_m2: float = Field(gt=0, description="Surface en m² (>0)")
     num_rooms: int = Field(gt=0, description="Nombre de pièces (>0)")
     type: Literal["room", "entire_home"] = "room"
@@ -67,7 +91,9 @@ class EstimatePriceRequest(BaseModel):
     wifi_incl: bool
     charges_incl: bool
     car_park: bool
-    dist_public_transport_km: float = Field(gt=0, description="Distance transport public en km (>0)")
+    dist_public_transport_km: float = Field(
+        gt=0, description="Distance transport public en km (>0)"
+    )
     proxim_hesso_km: float = Field(gt=0, description="Distance HES en km (>0)")
 
 
@@ -97,7 +123,6 @@ class UpdateResponse(BaseModel):
 class ModelInfo(BaseModel):
     artifact: str
     geo_points: int
-
 
 
 @router.post(
@@ -135,7 +160,9 @@ async def estimate_price(
 
 
 # ---- Price: add labeled observations to improve geo-KNN ----
-@router.post("/observations", response_model=UpdateResponse)
+@router.post(
+    "/observations", dependencies=[Depends(verify_key)], response_model=UpdateResponse
+)
 async def add_observations(items: List[LabeledObservation]):
     if not items:
         raise HTTPException(status_code=400, detail="Empty payload.")
