@@ -60,14 +60,14 @@ def _load_allowed_keys() -> List[str]:
     return [k.strip() for k in raw.split(",") if k.strip()]
 
 
-def verify_key(x_obs_token: Optional[str] = Header(default=None, alias="API_KEY")):
+def verify_key(api_key: Optional[str] = Header(default=None, alias="API-KEY")):
     allowed = _load_allowed_keys()
-    if not x_obs_token or not allowed:
+    if not api_key or not allowed:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid token."
         )
     for k in allowed:
-        if hmac.compare_digest(x_obs_token, k):
+        if hmac.compare_digest(api_key, k):
             return True
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid token."
