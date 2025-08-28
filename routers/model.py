@@ -1,5 +1,5 @@
+from typing import List, Union, Optional, Literal
 from fastapi import APIRouter, HTTPException
-from typing import List, Union, Optional
 from pydantic import BaseModel, Field
 from pathlib import Path
 
@@ -60,8 +60,8 @@ class EstimatePriceRequest(BaseModel):
     latitude: float
     longitude: float
     surface_m2: float
-    num_rooms: float
-    type: str
+    num_rooms: int
+    type: Literal["room", "entire_home"] = "room"
     is_furnished: bool
     floor: int
     wifi_incl: bool
