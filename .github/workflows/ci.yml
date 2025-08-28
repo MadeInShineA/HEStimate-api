@@ -23,7 +23,7 @@ jobs:
     # Add your secrets in: Settings → Secrets and variables → Actions
     env:
       # Example: your Python code/tests can read this with os.getenv("MY_SECRET")
-      MY_SECRET: ${{ secrets.MY_SECRET }}
+      MY_SECRET: ${{ secrets.API_KEY }}
 
     steps:
       - name: Checkout (no default token creds)
