@@ -2,7 +2,70 @@
   "target": "price_chf",
   "random_state": 42,
   "test_size": 0.2,
-  "cv_splits": 5,
+  "created_at": "20250828_110417",
   "best_model": "Lasso Regression",
-  "created_at": "20250827_161749"
+  "best_test_rmse": 34.52404197654756,
+  "model_path": "artifacts/best_model_Lasso_Regression_20250828_110417.joblib",
+  "all_results": [
+    {
+      "model": "Linear Regression",
+      "Test_RMSE": 34.52423740480734,
+      "Test_MAE": 27.068895848990454,
+      "Test_R2": 0.9938600030252798
+    },
+    {
+      "model": "Ridge Regression",
+      "Test_RMSE": 34.92707542539666,
+      "Test_MAE": 27.47041115751066,
+      "Test_R2": 0.9937158808258106
+    },
+    {
+      "model": "Lasso Regression",
+      "Test_RMSE": 34.52404197654756,
+      "Test_MAE": 27.06877059862743,
+      "Test_R2": 0.9938600725373454
+    },
+    {
+      "model": "Decision Tree",
+      "Test_RMSE": 75.60072750972705,
+      "Test_MAE": 58.71,
+      "Test_R2": 0.9705576875016533
+    },
+    {
+      "model": "Random Forest",
+      "Test_RMSE": 50.66171988789959,
+      "Test_MAE": 38.5844,
+      "Test_R2": 0.9867785274669726
+    },
+    {
+      "model": "Extra Trees",
+      "Test_RMSE": 48.23336704214441,
+      "Test_MAE": 37.614266666666666,
+      "Test_R2": 0.9880156322216094
+    },
+    {
+      "model": "Gradient Boosting",
+      "Test_RMSE": 38.55059181582794,
+      "Test_MAE": 28.74690762903594,
+      "Test_R2": 0.9923443500458977
+    },
+    {
+      "model": "KNN Regressor",
+      "Test_RMSE": 422.9999683215118,
+      "Test_MAE": 294.21,
+      "Test_R2": 0.07827654699216402
+    },
+    {
+      "model": "SVR (RBF Kernel)",
+      "Test_RMSE": 459.88464972675445,
+      "Test_MAE": 291.2480686501799,
+      "Test_R2": -0.08947632161694075
+    },
+    {
+      "model": "MLP Regressor",
+      "Test_RMSE": 106.59016465118786,
+      "Test_MAE": 85.84011717620938,
+      "Test_R2": 0.9414732734169402
+    }
+  ]
 }
