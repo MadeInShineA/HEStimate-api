@@ -2,7 +2,7 @@
 # Train MANY models, keep ONLY the best (by Test_RMSE)
 #   - Robust to unknown cities
 #   - Live-updatable KNNLocalPrice feature
-#   - Strictly-positive predictions (> 0) via log-target training
+#   - Non-negative predictions via log1p-target training
 #   - Saves ONLY:
 #       - artifacts/best_model_<Name>_<timestamp>.joblib
 #       - artifacts/run_meta.json (includes best_model_weights)
@@ -48,20 +48,8 @@ ARTIFACT_DIR = os.path.join("artifacts")
 # ----------------------- Columns ---------------------
 FORBIDDEN_COLS = {"city", "postal_code"}
 
-# ----------------------- Positivity transform helpers (pickle-safe) -----------------------
-MIN_Y = 1e-9  # strictly positive floor for log transform
-
-
-def log_transform(y: np.ndarray) -> np.ndarray:
-    """Log-transform with a tiny positive floor; top-level for pickle safety."""
-    y = np.asarray(y, dtype=float)
-    return np.log(np.maximum(y, MIN_Y))
-
-
-def exp_inverse(z: np.ndarray) -> np.ndarray:
-    """Inverse of log_transform; always returns strictly positive values."""
-    z = np.asarray(z, dtype=float)
-    return np.exp(z)
+# Tiny epsilon you can use in your API to enforce strictly > 0
+TINY_POS = np.finfo(float).tiny
 
 
 def drop_forbidden(df: pd.DataFrame) -> pd.DataFrame:
@@ -226,16 +214,15 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     return pre
 
 
-def make_strictly_positive_ttr(estimator) -> TransformedTargetRegressor:
+def make_pos_ttr(estimator) -> TransformedTargetRegressor:
     """
-    Wrap a regressor so it *trains* on log(y) and predicts exp(f(x)),
-    guaranteeing strictly-positive (>0) outputs.
-    Uses top-level functions to remain pickleable.
+    Train on log1p(y) and invert with expm1 to guarantee non-negative outputs.
+    Uses NumPy built-ins to remain pickle-safe under Uvicorn/Gunicorn.
     """
     return TransformedTargetRegressor(
         regressor=estimator,
-        func=log_transform,
-        inverse_func=exp_inverse,
+        func=np.log1p,
+        inverse_func=np.expm1,
         check_inverse=False,
     )
 
@@ -245,15 +232,17 @@ def _unwrap_final_estimator(
 ) -> Tuple[BaseEstimator, str]:
     """
     If the final estimator is a TransformedTargetRegressor, return its fitted regressor_.
-    Returns (estimator, wrapper_info) where wrapper_info describes any wrapping.
     """
     if isinstance(final_estimator, TransformedTargetRegressor):
         try:
-            return final_estimator.regressor_, "TransformedTargetRegressor(log->exp)"
+            return (
+                final_estimator.regressor_,
+                "TransformedTargetRegressor(log1p->expm1)",
+            )
         except Exception:
             return (
                 final_estimator.regressor,
-                "TransformedTargetRegressor(log->exp, unfitted unwrap)",
+                "TransformedTargetRegressor(log1p->expm1, unfitted unwrap)",
             )
     return final_estimator, "none"
 
@@ -344,7 +333,7 @@ def train_and_save_best(
     random_state: int = 42,
 ):
     """
-    Trains many regressors (all with strictly-positive output),
+    Trains many regressors (log1p target -> expm1 inverse),
     evaluates on a held-out test split, saves ONLY the best
     pipeline (.joblib), and writes run_meta.json with full per-model test stats.
     """
@@ -360,14 +349,13 @@ def train_and_save_best(
 
     X, y = df.drop(columns=[target]), df[target].astype(float)
 
-    # Sanity checks for positivity requirement
-    if np.any(y <= 0):
-        n_nonpos = int(np.sum(y <= 0))
+    # Sanity: warn if any y < 0 (invalid for log1p), and clip to 0
+    if np.any(y < 0):
+        n_neg = int(np.sum(y < 0))
         print(
-            f"⚠️  Found {n_nonpos} target value(s) ≤ 0. "
-            f"Training will internally floor them to {MIN_Y:g} for log-transform models. "
-            f"Consider fixing upstream if zeros/negatives are not expected."
+            f"⚠️  Found {n_neg} negative target value(s). They will be clipped to 0 for log1p."
         )
+        y = y.clip(lower=0.0)
 
     # Split BEFORE fitting any preprocessing to avoid leakage
     X_train, X_test, y_train, y_test = train_test_split(
@@ -375,7 +363,7 @@ def train_and_save_best(
     )
     print(f"📊 Train size: {len(X_train)} | Test size: {len(X_test)}")
 
-    # Candidate base models (to be wrapped with strictly-positive TTR)
+    # Candidate base models (to be wrapped with log1p/expm1)
     base_models = {
         "Linear Regression": LinearRegression(),
         "Ridge Regression": Ridge(alpha=1.0),
@@ -395,12 +383,12 @@ def train_and_save_best(
         ),
     }
 
-    # Wrap all general-purpose models with strictly-positive target transform
+    # Wrap all general-purpose models with non-negative target transform
     models: Dict[str, BaseEstimator] = {
-        name: make_strictly_positive_ttr(est) for name, est in base_models.items()
+        name: make_pos_ttr(est) for name, est in base_models.items()
     }
 
-    # Add GLM for positive continuous target (Gamma, log link is the default in many versions)
+    # Add GLM for positive continuous target (Gamma; mean is strictly positive)
     models.update(
         {"Gamma Regressor (log-link)": GammaRegressor(alpha=1.0, max_iter=2000)}
     )
@@ -416,8 +404,8 @@ def train_and_save_best(
         pipe.fit(X_train, y_train)
 
         preds = pipe.predict(X_test)
-        # Ensure numerical safety & strict positivity at the very end (should already be >0)
-        preds = np.maximum(preds, np.finfo(float).tiny)
+        # Numerical safety; if you *require* strictly > 0, enforce that in your API layer.
+        preds = np.maximum(preds, 0.0)
         rmse = math.sqrt(mean_squared_error(y_test, preds))
         mae = mean_absolute_error(y_test, preds)
         r2 = r2_score(y_test, preds)
@@ -480,6 +468,5 @@ if __name__ == "__main__":
 
     df = pd.read_csv(csv_path)
     df = drop_forbidden(df)
-    # NOTE: If your dataset can contain zeros/negatives for price_chf,
-    # log-transform models will floor them to MIN_Y for training.
+    # If your dataset has negatives, they are clipped to 0 before log1p.
     train_and_save_best(df, target="price_chf", out_dir=ARTIFACT_DIR)
