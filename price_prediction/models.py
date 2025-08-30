@@ -2,9 +2,10 @@
 # Train MANY models, keep ONLY the best (by Test_RMSE)
 #   - Robust to unknown cities
 #   - Live-updatable KNNLocalPrice feature
+#   - Strictly-positive predictions (> 0) via log-target training
 #   - Saves ONLY:
 #       - artifacts/best_model_<Name>_<timestamp>.joblib
-#       - artifacts/run_meta.json
+#       - artifacts/run_meta.json (includes best_model_weights)
 # ==============================================================
 
 import os
@@ -16,12 +17,12 @@ import numpy as np
 import pandas as pd
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Any
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.neighbors import NearestNeighbors
 from sklearn.ensemble import (
@@ -29,7 +30,12 @@ from sklearn.ensemble import (
     GradientBoostingRegressor,
     ExtraTreesRegressor,
 )
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import (
+    LinearRegression,
+    Ridge,
+    Lasso,
+    GammaRegressor,  # positive continuous targets
+)
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.svm import SVR
@@ -41,6 +47,21 @@ ARTIFACT_DIR = os.path.join("artifacts")
 
 # ----------------------- Columns ---------------------
 FORBIDDEN_COLS = {"city", "postal_code"}
+
+# ----------------------- Positivity transform helpers (pickle-safe) -----------------------
+MIN_Y = 1e-9  # strictly positive floor for log transform
+
+
+def log_transform(y: np.ndarray) -> np.ndarray:
+    """Log-transform with a tiny positive floor; top-level for pickle safety."""
+    y = np.asarray(y, dtype=float)
+    return np.log(np.maximum(y, MIN_Y))
+
+
+def exp_inverse(z: np.ndarray) -> np.ndarray:
+    """Inverse of log_transform; always returns strictly positive values."""
+    z = np.asarray(z, dtype=float)
+    return np.exp(z)
 
 
 def drop_forbidden(df: pd.DataFrame) -> pd.DataFrame:
@@ -205,6 +226,115 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     return pre
 
 
+def make_strictly_positive_ttr(estimator) -> TransformedTargetRegressor:
+    """
+    Wrap a regressor so it *trains* on log(y) and predicts exp(f(x)),
+    guaranteeing strictly-positive (>0) outputs.
+    Uses top-level functions to remain pickleable.
+    """
+    return TransformedTargetRegressor(
+        regressor=estimator,
+        func=log_transform,
+        inverse_func=exp_inverse,
+        check_inverse=False,
+    )
+
+
+def _unwrap_final_estimator(
+    final_estimator: BaseEstimator,
+) -> Tuple[BaseEstimator, str]:
+    """
+    If the final estimator is a TransformedTargetRegressor, return its fitted regressor_.
+    Returns (estimator, wrapper_info) where wrapper_info describes any wrapping.
+    """
+    if isinstance(final_estimator, TransformedTargetRegressor):
+        try:
+            return final_estimator.regressor_, "TransformedTargetRegressor(log->exp)"
+        except Exception:
+            return (
+                final_estimator.regressor,
+                "TransformedTargetRegressor(log->exp, unfitted unwrap)",
+            )
+    return final_estimator, "none"
+
+
+def _get_feature_names(preprocessor: ColumnTransformer) -> Optional[List[str]]:
+    """Try to fetch feature names after preprocessing to align with coef_/importances."""
+    try:
+        names = preprocessor.get_feature_names_out()
+        return list(map(str, names))
+    except Exception:
+        return None
+
+
+def _extract_weights(pipe: Pipeline) -> Dict[str, Any]:
+    """
+    Extract interpretable "weights" from the best model.
+
+    Returns dict with:
+    - type: "coef", "feature_importances", or "unavailable"
+    - wrapper: info about TTR wrapping, if any
+    - intercept: float or None
+    - weights: list of {feature, value} when feature names available, else raw list
+    """
+    info: Dict[str, Any] = {
+        "type": "unavailable",
+        "wrapper": None,
+        "intercept": None,
+        "weights": None,
+    }
+
+    try:
+        pre: ColumnTransformer = pipe.named_steps["preprocess"]
+        final = pipe.named_steps["regressor"]
+    except Exception:
+        return info
+
+    est, wrapper = _unwrap_final_estimator(final)
+    info["wrapper"] = wrapper
+    feature_names = _get_feature_names(pre)
+
+    # Linear-family with coef_
+    if hasattr(est, "coef_"):
+        coefs = np.asarray(getattr(est, "coef_"))
+        if coefs.ndim == 1:
+            coefs_list = coefs.tolist()
+            if feature_names is not None and len(feature_names) == len(coefs_list):
+                weights = [
+                    {"feature": f, "value": float(w)}
+                    for f, w in zip(feature_names, coefs_list)
+                ]
+            else:
+                weights = coefs_list
+        else:
+            weights = coefs.tolist()
+        info.update(
+            {
+                "type": "coef",
+                "intercept": float(getattr(est, "intercept_", 0.0))
+                if hasattr(est, "intercept_")
+                else None,
+                "weights": weights,
+            }
+        )
+        return info
+
+    # Tree/ensemble with feature_importances_
+    if hasattr(est, "feature_importances_"):
+        imps = np.asarray(getattr(est, "feature_importances_")).tolist()
+        if feature_names is not None and len(feature_names) == len(imps):
+            weights = [
+                {"feature": f, "value": float(v)} for f, v in zip(feature_names, imps)
+            ]
+        else:
+            weights = imps
+        info.update({"type": "feature_importances", "weights": weights})
+        return info
+
+    # Others (SVR RBF, KNN, MLP) -> unavailable
+    return info
+
+
 # ------------------- Core: train & save best -------------------
 def train_and_save_best(
     df: pd.DataFrame,
@@ -214,13 +344,9 @@ def train_and_save_best(
     random_state: int = 42,
 ):
     """
-    Trains many regressors, evaluates on a held-out test split, saves ONLY the best
+    Trains many regressors (all with strictly-positive output),
+    evaluates on a held-out test split, saves ONLY the best
     pipeline (.joblib), and writes run_meta.json with full per-model test stats.
-
-    Expects:
-      - drop_forbidden(df) to exist (optional)
-      - build_preprocessor(X) to exist and include KNNLocalPrice
-      - sklearn + joblib imports available in the module
     """
     os.makedirs(out_dir, exist_ok=True)
     print(f"📂 Artifacts dir: {out_dir}")
@@ -232,7 +358,16 @@ def train_and_save_best(
     # Optionally drop forbidden columns if present
     df = drop_forbidden(df)
 
-    X, y = df.drop(columns=[target]), df[target]
+    X, y = df.drop(columns=[target]), df[target].astype(float)
+
+    # Sanity checks for positivity requirement
+    if np.any(y <= 0):
+        n_nonpos = int(np.sum(y <= 0))
+        print(
+            f"⚠️  Found {n_nonpos} target value(s) ≤ 0. "
+            f"Training will internally floor them to {MIN_Y:g} for log-transform models. "
+            f"Consider fixing upstream if zeros/negatives are not expected."
+        )
 
     # Split BEFORE fitting any preprocessing to avoid leakage
     X_train, X_test, y_train, y_test = train_test_split(
@@ -240,8 +375,8 @@ def train_and_save_best(
     )
     print(f"📊 Train size: {len(X_train)} | Test size: {len(X_test)}")
 
-    # Candidate models
-    models = {
+    # Candidate base models (to be wrapped with strictly-positive TTR)
+    base_models = {
         "Linear Regression": LinearRegression(),
         "Ridge Regression": Ridge(alpha=1.0),
         "Lasso Regression": Lasso(alpha=0.001, max_iter=100000),
@@ -260,6 +395,16 @@ def train_and_save_best(
         ),
     }
 
+    # Wrap all general-purpose models with strictly-positive target transform
+    models: Dict[str, BaseEstimator] = {
+        name: make_strictly_positive_ttr(est) for name, est in base_models.items()
+    }
+
+    # Add GLM for positive continuous target (Gamma, log link is the default in many versions)
+    models.update(
+        {"Gamma Regressor (log-link)": GammaRegressor(alpha=1.0, max_iter=2000)}
+    )
+
     results = []  # collect stats for all models
     best_name, best_pipe, best_rmse = None, None, float("inf")
 
@@ -271,6 +416,8 @@ def train_and_save_best(
         pipe.fit(X_train, y_train)
 
         preds = pipe.predict(X_test)
+        # Ensure numerical safety & strict positivity at the very end (should already be >0)
+        preds = np.maximum(preds, np.finfo(float).tiny)
         rmse = math.sqrt(mean_squared_error(y_test, preds))
         mae = mean_absolute_error(y_test, preds)
         r2 = r2_score(y_test, preds)
@@ -288,12 +435,18 @@ def train_and_save_best(
             best_name, best_pipe, best_rmse = name, pipe, rmse
             print(f"   🥇 New best so far: {best_name} (RMSE={best_rmse:.4f})")
 
+    if best_pipe is None:
+        raise RuntimeError("No model was trained successfully.")
+
     # Save best pipeline
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = best_name.replace(" ", "_")
+    safe_name = best_name.replace(" ", "_").replace("/", "_")
     model_path = os.path.join(out_dir, f"best_model_{safe_name}_{ts}.joblib")
     joblib.dump(best_pipe, model_path)
     print(f"\n💾 Saved best model: {best_name} (RMSE={best_rmse:.4f}) → {model_path}")
+
+    # Extract weights of the best model for the meta JSON
+    best_weights = _extract_weights(best_pipe)
 
     # Save full run metadata with all per-model test stats
     meta = {
@@ -304,6 +457,7 @@ def train_and_save_best(
         "best_model": best_name,
         "best_test_rmse": float(best_rmse),
         "model_path": model_path,
+        "best_model_weights": best_weights,
         "all_results": results,  # full leaderboard-like stats
     }
     with open(os.path.join(out_dir, "run_meta.json"), "w") as f:
@@ -326,4 +480,6 @@ if __name__ == "__main__":
 
     df = pd.read_csv(csv_path)
     df = drop_forbidden(df)
+    # NOTE: If your dataset can contain zeros/negatives for price_chf,
+    # log-transform models will floor them to MIN_Y for training.
     train_and_save_best(df, target="price_chf", out_dir=ARTIFACT_DIR)

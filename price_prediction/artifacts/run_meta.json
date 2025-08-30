@@ -2,70 +2,139 @@
   "target": "price_chf",
   "random_state": 42,
   "test_size": 0.2,
-  "created_at": "20250828_110417",
-  "best_model": "Lasso Regression",
-  "best_test_rmse": 34.52404197654756,
-  "model_path": "artifacts/best_model_Lasso_Regression_20250828_110417.joblib",
+  "created_at": "20250830_130246",
+  "best_model": "Gradient Boosting",
+  "best_test_rmse": 46.33899119785436,
+  "model_path": "artifacts/best_model_Gradient_Boosting_20250830_130246.joblib",
+  "best_model_weights": {
+    "type": "feature_importances",
+    "wrapper": "TransformedTargetRegressor(log->exp)",
+    "intercept": null,
+    "weights": [
+      {
+        "feature": "surface_m2",
+        "value": 0.1585937988068089
+      },
+      {
+        "feature": "num_rooms",
+        "value": 0.4248491758728202
+      },
+      {
+        "feature": "floor",
+        "value": 0.0010597026693792335
+      },
+      {
+        "feature": "dist_public_transport_km",
+        "value": 0.0034525978273991045
+      },
+      {
+        "feature": "proxim_hesso_km",
+        "value": 0.03866180400837209
+      },
+      {
+        "feature": "latitude",
+        "value": 0.004209881527348874
+      },
+      {
+        "feature": "longitude",
+        "value": 0.003957149327663555
+      },
+      {
+        "feature": "type_entire_home",
+        "value": 0.10745967894344975
+      },
+      {
+        "feature": "type_room",
+        "value": 0.22242407857139432
+      },
+      {
+        "feature": "is_furnished",
+        "value": 0.021504880313911415
+      },
+      {
+        "feature": "wifi_incl",
+        "value": 0.0026124029969862303
+      },
+      {
+        "feature": "charges_incl",
+        "value": 0.0043472095935829565
+      },
+      {
+        "feature": "car_park",
+        "value": 0.004006615505625738
+      },
+      {
+        "feature": "local_price_knn",
+        "value": 0.0028610240352577405
+      }
+    ]
+  },
   "all_results": [
     {
       "model": "Linear Regression",
-      "Test_RMSE": 34.52423740480734,
-      "Test_MAE": 27.068895848990454,
-      "Test_R2": 0.9938600030252798
+      "Test_RMSE": 130.3897351506005,
+      "Test_MAE": 73.29068595843614,
+      "Test_R2": 0.912419630164722
     },
     {
       "model": "Ridge Regression",
-      "Test_RMSE": 34.92707542539666,
-      "Test_MAE": 27.47041115751066,
-      "Test_R2": 0.9937158808258106
+      "Test_RMSE": 129.04941114172436,
+      "Test_MAE": 72.87886462922401,
+      "Test_R2": 0.9142109175689254
     },
     {
       "model": "Lasso Regression",
-      "Test_RMSE": 34.52404197654756,
-      "Test_MAE": 27.06877059862743,
-      "Test_R2": 0.9938600725373454
+      "Test_RMSE": 126.56024732901714,
+      "Test_MAE": 72.10424281281061,
+      "Test_R2": 0.9174884779941598
     },
     {
       "model": "Decision Tree",
-      "Test_RMSE": 75.60072750972705,
-      "Test_MAE": 58.71,
-      "Test_R2": 0.9705576875016533
+      "Test_RMSE": 87.82209289239242,
+      "Test_MAE": 66.56000000000002,
+      "Test_R2": 0.9602691795333982
     },
     {
       "model": "Random Forest",
-      "Test_RMSE": 50.66171988789959,
-      "Test_MAE": 38.5844,
-      "Test_R2": 0.9867785274669726
+      "Test_RMSE": 51.94249097313305,
+      "Test_MAE": 39.9170718631403,
+      "Test_R2": 0.9861015773504663
     },
     {
       "model": "Extra Trees",
-      "Test_RMSE": 48.23336704214441,
-      "Test_MAE": 37.614266666666666,
-      "Test_R2": 0.9880156322216094
+      "Test_RMSE": 48.329074483074905,
+      "Test_MAE": 37.519295615328424,
+      "Test_R2": 0.9879680248822593
     },
     {
       "model": "Gradient Boosting",
-      "Test_RMSE": 38.55059181582794,
-      "Test_MAE": 28.74690762903594,
-      "Test_R2": 0.9923443500458977
+      "Test_RMSE": 46.33899119785436,
+      "Test_MAE": 36.08414650302446,
+      "Test_R2": 0.9889385230592267
     },
     {
       "model": "KNN Regressor",
-      "Test_RMSE": 422.9999683215118,
-      "Test_MAE": 294.21,
-      "Test_R2": 0.07827654699216402
+      "Test_RMSE": 445.65706182359247,
+      "Test_MAE": 299.25655575473627,
+      "Test_R2": -0.023108172558544027
     },
     {
       "model": "SVR (RBF Kernel)",
-      "Test_RMSE": 459.88464972675445,
-      "Test_MAE": 291.2480686501799,
-      "Test_R2": -0.08947632161694075
+      "Test_RMSE": 384.77374309527727,
+      "Test_MAE": 249.60932860382766,
+      "Test_R2": 0.2373402534028507
     },
     {
       "model": "MLP Regressor",
-      "Test_RMSE": 106.59016465118786,
-      "Test_MAE": 85.84011717620938,
-      "Test_R2": 0.9414732734169402
+      "Test_RMSE": 907.9326670535166,
+      "Test_MAE": 566.576152718279,
+      "Test_R2": -3.2464621034393666
+    },
+    {
+      "model": "Gamma Regressor (log-link)",
+      "Test_RMSE": 223.38917140914296,
+      "Test_MAE": 156.68846417286167,
+      "Test_R2": 0.7429342586380131
     }
   ]
 }
