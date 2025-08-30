@@ -157,8 +157,8 @@ def test_high_price_observations_increase_prediction():
     assert resp_after.status_code == 200
     new_price = resp_after.json()["predicted_price_chf"]
 
-    assert new_price >= initial_price, (
-        f"Expected new price ({new_price}) >= initial price ({initial_price})"
+    assert new_price > initial_price, (
+        f"Expected new price ({new_price}) > initial price ({initial_price})"
     )
 
 
