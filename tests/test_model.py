@@ -64,7 +64,7 @@ def test_estimate_price_batch_real_model():
             "car_park": False,
             "dist_public_transport_km": 1.0,
             "proxim_hesso_km": 2.0,
-        },
+        }
     ]
     resp = client.post("/estimate-price", json=payload)
     assert resp.status_code == 200
@@ -75,17 +75,15 @@ def test_estimate_price_batch_real_model():
 
 @pytest.mark.integration
 def test_add_observations_real_model():
-    payload = [
-        {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500},
-        {"latitude": 46.6, "longitude": 6.6, "price_chf": 1600},
-    ]
+    payload = {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500}
+
     resp = client.post(
         "/observations", json=payload, headers={"API-KEY": os.getenv("API_KEY")}
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert data["added"] == 2
+    assert data["added"] == 1
     assert "model_artifact" in data
 
 
@@ -104,22 +102,20 @@ def test_add_observations_increases_geo_points():
     assert resp.status_code == 200
     initial_geo_points = resp.json()["geo_points"]
 
-    new_obs = [
-        {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500},
-        {"latitude": 46.6, "longitude": 6.6, "price_chf": 1600},
-    ]
+    new_obs = {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500}
+
     resp_add = client.post(
         "/observations", json=new_obs, headers={"API-KEY": os.getenv("API_KEY")}
     )
     assert resp_add.status_code == 200
     data_add = resp_add.json()
     assert data_add["success"] is True
-    assert data_add["added"] == 2
+    assert data_add["added"] == 1
 
     resp_after = client.get("/model-info")
     assert resp_after.status_code == 200
     geo_points_after = resp_after.json()["geo_points"]
-    assert geo_points_after == initial_geo_points + 2
+    assert geo_points_after == initial_geo_points + 1
 
 
 @pytest.mark.integration
@@ -143,15 +139,13 @@ def test_high_price_observations_increase_prediction():
     assert resp_initial.status_code == 200
     initial_price = resp_initial.json()["predicted_price_chf"]
 
-    high_price_obs = [
-        {"latitude": 46.5, "longitude": 6.5, "price_chf": initial_price * 10},
-        {"latitude": 46.5005, "longitude": 6.5005, "price_chf": initial_price * 8},
-    ]
+    high_price_obs = {"latitude": 46.5, "longitude": 6.5, "price_chf": initial_price * 10}
+
     resp_add = client.post(
         "/observations", json=high_price_obs, headers={"API-KEY": os.getenv("API_KEY")}
     )
     assert resp_add.status_code == 200
-    assert resp_add.json()["added"] == 2
+    assert resp_add.json()["added"] == 1
 
     resp_after = client.post("/estimate-price", json=house_payload)
     assert resp_after.status_code == 200
@@ -229,16 +223,14 @@ def test_add_observations_empty_payload():
     resp = client.post(
         "/observations", json=empty_payload, headers={"API-KEY": os.getenv("API_KEY")}
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     data = resp.json()
-    assert "Empty payload." in data["detail"]
+    assert "Input should be a valid dictionary" in data["detail"][0]['msg']
 
 
 @pytest.mark.integration
 def test_add_observations_without_token():
-    payload = [
-        {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500},
-        {"latitude": 46.6, "longitude": 6.6, "price_chf": 1600},
-    ]
+    payload = {"latitude": 46.5, "longitude": 6.5, "price_chf": 1500}
+
     resp = client.post("/observations", json=payload)
     assert resp.status_code == 401

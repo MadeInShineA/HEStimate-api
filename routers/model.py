@@ -77,14 +77,10 @@ class EstimatePriceItemResponse(BaseModel):
 
 
 # ------- Live updates for geo KNN -------
-class LabeledObservation(BaseModel):
+class ObservationRequest(BaseModel):
     latitude: float
     longitude: float
     price_chf: float
-    observed_at: Optional[str] = Field(
-        default=None,
-        description="Optional ISO datetime; not required (for future recency weighting).",
-    )
 
 
 class UpdateResponse(BaseModel):
@@ -244,17 +240,17 @@ async def estimate_price(
     dependencies=[Depends(verify_key)],
     response_model=UpdateResponse,
 )
-async def add_observations(items: List[LabeledObservation]):
+async def add_observations(item: ObservationRequest):
     """
     Append labeled (lat, lon, price) observations to the live model's geo-KNN,
     then persist atomically to best_model_live.joblib so all workers can reload.
     """
-    if not items:
+    if not item:
         raise HTTPException(status_code=400, detail="Empty payload.")
 
-    lat = np.array([it.latitude for it in items], dtype=float)
-    lon = np.array([it.longitude for it in items], dtype=float)
-    y = np.array([it.price_chf for it in items], dtype=float)
+    lat = np.array([item.latitude], dtype=float)
+    lon = np.array([item.longitude], dtype=float)
+    y = np.array([item.price_chf], dtype=float)
     X_ll_new = np.stack([lat, lon], axis=1)
 
     with _MODEL_LOCK:
@@ -292,7 +288,7 @@ async def add_observations(items: List[LabeledObservation]):
     return UpdateResponse(
         success=True,
         message="Observations added and live model updated.",
-        added=len(items),
+        added=1,
         model_artifact=LIVE_NAME,
     )
 
