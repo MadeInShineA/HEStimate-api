@@ -78,23 +78,23 @@ def verify_key(api_key: Optional[str] = Header(default=None, alias="API-KEY")):
 # NOTE: No nearest_hesso_name here; proxim_hesso_km is kept
 class EstimatePriceRequest(BaseModel):
     latitude: float = Field(
-        ..., ge=-90, le=90, description="Latitude en degrés (-90 à 90)"
+        ..., ge=-90, le=90, description="Latitude in degrees (-90 to 90)"
     )
     longitude: float = Field(
-        ..., ge=-180, le=180, description="Longitude en degrés (-180 à 180)"
+        ..., ge=-180, le=180, description="Longitude in degrees (-180 to 180)"
     )
-    surface_m2: float = Field(gt=0, description="Surface en m² (>0)")
-    num_rooms: int = Field(gt=0, description="Nombre de pièces (>0)")
+    surface_m2: float = Field(gt=0, description="Surface area in square meters (>0)")
+    num_rooms: int = Field(gt=0, description="Number of items (>0)")
     type: Literal["room", "entire_home"] = "room"
     is_furnished: bool
-    floor: int = Field(ge=0, description="Étage (>=0)")
+    floor: int = Field(ge=0, description="Floor (>=0)")
     wifi_incl: bool
     charges_incl: bool
     car_park: bool
     dist_public_transport_km: float = Field(
-        gt=0, description="Distance transport public en km (>0)"
+        gt=0, description="Distance to public transportation in km (>0)"
     )
-    proxim_hesso_km: float = Field(gt=0, description="Distance HES en km (>0)")
+    proxim_hesso_km: float = Field(gt=0, description="Distance from HES in km (>0)")
 
 
 class EstimatePriceItemResponse(BaseModel):
@@ -107,10 +107,6 @@ class LabeledObservation(BaseModel):
     latitude: float
     longitude: float
     price_chf: float
-    observed_at: Optional[str] = Field(
-        default=None,
-        description="Optional ISO datetime; not required (for future recency weighting).",
-    )
 
 
 class UpdateResponse(BaseModel):
@@ -144,10 +140,29 @@ async def estimate_price(
         records = [payload.model_dump()]
 
     df = pd.DataFrame.from_records(records)
+
     try:
-        preds = pipe.predict(df)
+        preds = pipe.predict(df).astype(float)  # base price preds (>0)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Inference error: {e}")
+
+    # ---- Post-blend with live geo KNN mean (price units) ----
+    try:
+        pre = pipe.named_steps.get("preprocess")
+        if pre is not None and hasattr(pre, "named_transformers_"):
+            geo_knn = pre.named_transformers_.get("geo_knn")
+            if geo_knn is not None:
+                # local mean price for each row (shape: [n, 1] -> ravel)
+                ll = df[["latitude", "longitude"]].to_numpy(dtype=float)
+                local_mean = geo_knn.transform(ll).ravel().astype(float)
+
+                # Blend in price space
+                alpha = float(os.getenv("LOCAL_BLEND_ALPHA", "0.3"))
+                alpha = max(0.0, min(1.0, alpha))  # clamp
+                preds = (1.0 - alpha) * preds + alpha * local_mean
+    except Exception:
+        # If anything goes wrong, just keep base preds
+        pass
 
     results = [
         EstimatePriceItemResponse(
@@ -159,23 +174,21 @@ async def estimate_price(
     return results if isinstance(payload, list) else results[0]
 
 
-# ---- Price: add labeled observations to improve geo-KNN ----
+# ---- Price: add a single labeled observation to improve geo-KNN ----
 @router.post(
     "/observations", dependencies=[Depends(verify_key)], response_model=UpdateResponse
 )
-async def add_observations(items: List[LabeledObservation]):
-    if not items:
-        raise HTTPException(status_code=400, detail="Empty payload.")
+async def add_observations(item: LabeledObservation):
+    # Accept a single observation (tests send a dict, not a list).
     try:
         pipe, _ = get_price_model()
         geo_knn = _get_geo_knn_transformer(pipe)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Model load error: {e}")
 
-    lat = np.array([it.latitude for it in items], dtype=float)
-    lon = np.array([it.longitude for it in items], dtype=float)
-    y = np.array([it.price_chf for it in items], dtype=float)
-    X_ll_new = np.stack([lat, lon], axis=1)
+    # Build 1-row arrays
+    X_ll_new = np.array([[float(item.latitude), float(item.longitude)]], dtype=float)
+    y = np.array([float(item.price_chf)], dtype=float)
 
     try:
         if not hasattr(geo_knn, "update"):
@@ -187,7 +200,6 @@ async def add_observations(items: List[LabeledObservation]):
         raise HTTPException(status_code=400, detail=f"Update failed: {e}")
 
     # Persist a live copy so improvements survive restarts
-
     live_path = ARTIFACT_DIR / "best_model_live.joblib"
     try:
         joblib.dump(pipe, live_path)
@@ -201,8 +213,8 @@ async def add_observations(items: List[LabeledObservation]):
 
     return UpdateResponse(
         success=True,
-        message="Observations added and model updated.",
-        added=len(items),
+        message="Observation added and model updated.",
+        added=1,
         model_artifact=live_path.name,
     )
 
