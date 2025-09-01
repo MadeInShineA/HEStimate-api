@@ -78,23 +78,23 @@ def verify_key(api_key: Optional[str] = Header(default=None, alias="API-KEY")):
 # NOTE: No nearest_hesso_name here; proxim_hesso_km is kept
 class EstimatePriceRequest(BaseModel):
     latitude: float = Field(
-        ..., ge=-90, le=90, description="Latitude en degrés (-90 à 90)"
+        ..., ge=-90, le=90, description="Latitude in degrees (-90 to 90)"
     )
     longitude: float = Field(
-        ..., ge=-180, le=180, description="Longitude en degrés (-180 à 180)"
+        ..., ge=-180, le=180, description="Longitude in degrees (-180 to 180)"
     )
-    surface_m2: float = Field(gt=0, description="Surface en m² (>0)")
-    num_rooms: int = Field(gt=0, description="Nombre de pièces (>0)")
+    surface_m2: float = Field(gt=0, description="Surface area in square meters (>0)")
+    num_rooms: int = Field(gt=0, description="Number of items (>0)")
     type: Literal["room", "entire_home"] = "room"
     is_furnished: bool
-    floor: int = Field(ge=0, description="Étage (>=0)")
+    floor: int = Field(ge=0, description="Floor (>=0)")
     wifi_incl: bool
     charges_incl: bool
     car_park: bool
     dist_public_transport_km: float = Field(
-        gt=0, description="Distance transport public en km (>0)"
+        gt=0, description="Distance to public transportation in km (>0)"
     )
-    proxim_hesso_km: float = Field(gt=0, description="Distance HES en km (>0)")
+    proxim_hesso_km: float = Field(gt=0, description="Distance from HES in km (>0)")
 
 
 class EstimatePriceItemResponse(BaseModel):
