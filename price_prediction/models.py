@@ -2,10 +2,10 @@
 # Train MANY models, keep ONLY the best (by Test_RMSE)
 #   - Robust to unknown cities
 #   - Live-updatable KNNLocalPrice feature
-#   - Non-negative predictions via log1p-target training
+#   - Strictly positive predictions via log-target training (no clipping)
 #   - Saves ONLY:
 #       - artifacts/best_model_<Name>_<timestamp>.joblib
-#       - artifacts/run_meta.json (includes best_model_weights)
+#       - artifacts/run_meta.json (now with *final* labeled weights)
 # ==============================================================
 
 import os
@@ -17,11 +17,11 @@ import numpy as np
 import pandas as pd
 
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransformer
 from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.neighbors import NearestNeighbors
@@ -30,12 +30,7 @@ from sklearn.ensemble import (
     GradientBoostingRegressor,
     ExtraTreesRegressor,
 )
-from sklearn.linear_model import (
-    LinearRegression,
-    Ridge,
-    Lasso,
-    GammaRegressor,  # positive continuous targets
-)
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.svm import SVR
@@ -47,9 +42,6 @@ ARTIFACT_DIR = os.path.join("artifacts")
 
 # ----------------------- Columns ---------------------
 FORBIDDEN_COLS = {"city", "postal_code"}
-
-# Tiny epsilon you can use in your API to enforce strictly > 0
-TINY_POS = np.finfo(float).tiny
 
 
 def drop_forbidden(df: pd.DataFrame) -> pd.DataFrame:
@@ -214,114 +206,186 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
     return pre
 
 
-def make_pos_ttr(estimator) -> TransformedTargetRegressor:
+def _to_jsonable(x: Any) -> Any:
+    """Convert numpy/scalar types to JSON-friendly Python types."""
+    if isinstance(x, (np.floating, np.integer)):
+        return x.item()
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    return x
+
+
+def _pair_labels(
+    values: np.ndarray, names: List[str], key_name: str
+) -> List[Dict[str, Any]]:
+    """Return list of {feature, key_name} dicts for readability."""
+    return [
+        {"feature": str(n), key_name: _to_jsonable(v)} for n, v in zip(names, values)
+    ]
+
+
+def _linear_weights_in_original_space(
+    pipe: Pipeline, coef_z: np.ndarray, intercept_z: float
+) -> Tuple[List[str], np.ndarray, float]:
     """
-    Train on log1p(y) and invert with expm1 to guarantee non-negative outputs.
-    Uses NumPy built-ins to remain pickle-safe under Uvicorn/Gunicorn.
+    Map linear coefficients from standardized 'z' space back to original inputs.
+    - coef_z / intercept_z are for the *transformed* features produced by the ColumnTransformer.
+    - We undo StandardScaler for the numeric block; other blocks (one-hot, booleans, geo_knn) are already in "original" interpretation.
+    Returns (feature_names, coef_original, intercept_original) all in LOG-PRICE space.
     """
-    return TransformedTargetRegressor(
-        regressor=estimator,
-        func=np.log1p,
-        inverse_func=np.expm1,
-        check_inverse=False,
-    )
+    pre: ColumnTransformer = pipe.named_steps["preprocess"]
+    feat_names = list(pre.get_feature_names_out())
+
+    coef_z = np.asarray(coef_z).ravel().copy()
+    intercept = float(intercept_z)
+
+    # Figure out lengths of each block to know indices
+    # We defined transformers in order: num, cat, bool, geo_knn
+    # --- NUM ---
+    num_cols = pre.transformers_[0][2]  # list of original numeric col names
+    scaler: StandardScaler = pre.named_transformers_["num"]
+    num_len = len(num_cols)
+    # --- CAT ---
+    cat_cols = pre.transformers_[1][2]
+    if len(cat_cols) > 0:
+        cat_ohe = pre.named_transformers_["cat"]
+        cat_len = len(cat_ohe.get_feature_names_out(cat_cols))
+    else:
+        cat_len = 0
+    # --- BOOL ---
+    bool_cols = pre.transformers_[2][2]
+    bool_len = len(bool_cols)
+    # --- GEO_KNN ---
+    geo_len = 1  # KNNLocalPrice returns a single feature
+
+    # Adjust numeric block: z = (x - mean)/scale  =>  w*x = (w/scale)*x  and intercept -= w*mean/scale
+    if num_len:
+        scales = np.asarray(scaler.scale_)
+        means = np.asarray(scaler.mean_)
+        coef_z[:num_len] = coef_z[:num_len] / scales
+        intercept -= float(
+            np.dot(coef_z[:num_len], means)
+        )  # adjust for means now that we changed coefs
+
+    # Coefficients for other blocks remain as-is (OHE/booleans/geo_knn are already in "original" interpr.)
+    return feat_names, coef_z, intercept
 
 
-def _unwrap_final_estimator(
-    final_estimator: BaseEstimator,
-) -> Tuple[BaseEstimator, str]:
+def extract_best_model_weights(best_pipe: Pipeline) -> Dict[str, Any]:
     """
-    If the final estimator is a TransformedTargetRegressor, return its fitted regressor_.
+    Extract interpretable weights/params from the best fitted pipeline.
+    - For linear models (Linear/Ridge/Lasso): true final weights in original-input space (log-price), and multiplicative factors in price space.
+    - For tree ensembles: labeled feature_importances_.
+    - For others: fall back to get_params() (compact).
+    Always includes 'estimator_class'.
     """
-    if isinstance(final_estimator, TransformedTargetRegressor):
-        try:
-            return (
-                final_estimator.regressor_,
-                "TransformedTargetRegressor(log1p->expm1)",
-            )
-        except Exception:
-            return (
-                final_estimator.regressor,
-                "TransformedTargetRegressor(log1p->expm1, unfitted unwrap)",
-            )
-    return final_estimator, "none"
+    out: Dict[str, Any] = {}
 
+    # Unwrap: Pipeline(preprocess, regressor=TTR(regressor=<base>))
+    reg = best_pipe.named_steps.get("regressor")
+    base_reg = getattr(
+        reg, "regressor", reg
+    )  # unwrap TransformedTargetRegressor if present
+    out["estimator_class"] = type(base_reg).__name__
 
-def _get_feature_names(preprocessor: ColumnTransformer) -> Optional[List[str]]:
-    """Try to fetch feature names after preprocessing to align with coef_/importances."""
-    try:
-        names = preprocessor.get_feature_names_out()
-        return list(map(str, names))
-    except Exception:
-        return None
+    # Feature names from the fitted preprocessor
+    pre: ColumnTransformer = best_pipe.named_steps["preprocess"]
+    feat_names = list(pre.get_feature_names_out())
 
+    # Linear models: map to original-input space
+    if hasattr(base_reg, "coef_") and hasattr(base_reg, "intercept_"):
+        w_z = np.asarray(base_reg.coef_).ravel()
+        b_z = float(base_reg.intercept_)
 
-def _extract_weights(pipe: Pipeline) -> Dict[str, Any]:
-    """
-    Extract interpretable "weights" from the best model.
+        names, w_orig, b_orig = _linear_weights_in_original_space(best_pipe, w_z, b_z)
 
-    Returns dict with:
-    - type: "coef", "feature_importances", or "unavailable"
-    - wrapper: info about TTR wrapping, if any
-    - intercept: float or None
-    - weights: list of {feature, value} when feature names available, else raw list
-    """
-    info: Dict[str, Any] = {
-        "type": "unavailable",
-        "wrapper": None,
-        "intercept": None,
-        "weights": None,
-    }
+        # Multiplicative effects in price space for +1 unit change: factor = exp(weight)
+        mult = np.exp(w_orig)
 
-    try:
-        pre: ColumnTransformer = pipe.named_steps["preprocess"]
-        final = pipe.named_steps["regressor"]
-    except Exception:
-        return info
-
-    est, wrapper = _unwrap_final_estimator(final)
-    info["wrapper"] = wrapper
-    feature_names = _get_feature_names(pre)
-
-    # Linear-family with coef_
-    if hasattr(est, "coef_"):
-        coefs = np.asarray(getattr(est, "coef_"))
-        if coefs.ndim == 1:
-            coefs_list = coefs.tolist()
-            if feature_names is not None and len(feature_names) == len(coefs_list):
-                weights = [
-                    {"feature": f, "value": float(w)}
-                    for f, w in zip(feature_names, coefs_list)
-                ]
-            else:
-                weights = coefs_list
-        else:
-            weights = coefs.tolist()
-        info.update(
-            {
-                "type": "coef",
-                "intercept": float(getattr(est, "intercept_", 0.0))
-                if hasattr(est, "intercept_")
-                else None,
-                "weights": weights,
-            }
+        out["space"] = "log-price"
+        out["feature_names"] = names
+        out["final_weights_logspace_labeled"] = _pair_labels(w_orig, names, "weight")
+        out["final_effect_multipliers_price_space_labeled"] = _pair_labels(
+            mult, names, "multiplier_per_unit"
         )
-        return info
+        out["intercept_log_price"] = b_orig
+        out["note"] = (
+            "Prediction is price = exp( intercept_log_price + sum_i weight_i * x_i + ... ). "
+            "Multipliers are exp(weight_i): the factor by which price changes for +1 unit in feature i."
+        )
+        return out
 
-    # Tree/ensemble with feature_importances_
-    if hasattr(est, "feature_importances_"):
-        imps = np.asarray(getattr(est, "feature_importances_")).tolist()
-        if feature_names is not None and len(feature_names) == len(imps):
-            weights = [
-                {"feature": f, "value": float(v)} for f, v in zip(feature_names, imps)
-            ]
-        else:
-            weights = imps
-        info.update({"type": "feature_importances", "weights": weights})
-        return info
+    # Tree ensembles: feature_importances_ with labels
+    if hasattr(base_reg, "feature_importances_"):
+        fi = np.asarray(base_reg.feature_importances_)
+        out["feature_names"] = feat_names
+        out["feature_importances_labeled"] = _pair_labels(fi, feat_names, "importance")
+        out["feature_importances_"] = _to_jsonable(fi)
+        out["note"] = (
+            "Tree ensembles do not have coefficients; importances reflect relative contribution."
+        )
+        return out
 
-    # Others (SVR RBF, KNN, MLP) -> unavailable
-    return info
+    # Fallback: compact hyperparameters
+    try:
+        params = base_reg.get_params(deep=False)
+        out["params"] = {k: _to_jsonable(v) for k, v in params.items()}
+    except Exception:
+        out["params"] = {"detail": "unavailable"}
+    out["note"] = (
+        "Estimator has no explicit coefficients; stored hyperparameters instead."
+    )
+    return out
+
+
+def distill_linear_surrogate(
+    best_pipe: Pipeline,
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_pred_train: np.ndarray,
+    y_pred_test: np.ndarray,
+    alpha: float = 1.0,
+) -> Dict[str, Any]:
+    """
+    Fit a simple Ridge on the pipeline's transformed features to approximate the BEST model
+    in LOG-price space, then map coefficients back to original inputs.
+    Returns labeled surrogate 'final weights' with an R² score vs the best model's log-preds.
+    """
+    pre: ColumnTransformer = best_pipe.named_steps["preprocess"]
+    Z_train = pre.transform(X_train)
+    Z_test = pre.transform(X_test)
+    names = list(pre.get_feature_names_out())
+
+    # Target is log of the best model's price predictions (strictly positive)
+    y_log_train = np.log(np.clip(y_pred_train, 1e-12, None))
+    y_log_test = np.log(np.clip(y_pred_test, 1e-12, None))
+
+    ridge = Ridge(alpha=alpha, random_state=42)
+    ridge.fit(Z_train, y_log_train)
+
+    # Quality of the surrogate
+    r2_sur = float(r2_score(y_log_test, ridge.predict(Z_test)))
+
+    # Map weights back to original input space
+    w_z = ridge.coef_.ravel()
+    b_z = float(ridge.intercept_)
+    names, w_orig, b_orig = _linear_weights_in_original_space(best_pipe, w_z, b_z)
+    mult = np.exp(w_orig)
+
+    return {
+        "surrogate_type": "Ridge",
+        "r2_against_best_logspace": r2_sur,
+        "feature_names": names,
+        "final_weights_logspace_labeled": _pair_labels(w_orig, names, "weight"),
+        "final_effect_multipliers_price_space_labeled": _pair_labels(
+            mult, names, "multiplier_per_unit"
+        ),
+        "intercept_log_price": b_orig,
+        "note": (
+            "Surrogate approximates the best model in log-price space. "
+            "Multipliers are exp(weight_i): factor on price for +1 unit of feature i."
+        ),
+    }
 
 
 # ------------------- Core: train & save best -------------------
@@ -333,9 +397,14 @@ def train_and_save_best(
     random_state: int = 42,
 ):
     """
-    Trains many regressors (log1p target -> expm1 inverse),
-    evaluates on a held-out test split, saves ONLY the best
+    Trains many regressors, evaluates on a held-out test split, saves ONLY the best
     pipeline (.joblib), and writes run_meta.json with full per-model test stats.
+
+    Enforces strictly positive predictions by training regressors in log-space
+    using TransformedTargetRegressor (inverse = exp). Preprocessor and
+    KNNLocalPrice still see the original y during their own fitting.
+    Also stores the best model's *final* labeled weights. If the best is not linear,
+    includes a linear surrogate's final weights as well.
     """
     os.makedirs(out_dir, exist_ok=True)
     print(f"📂 Artifacts dir: {out_dir}")
@@ -347,15 +416,7 @@ def train_and_save_best(
     # Optionally drop forbidden columns if present
     df = drop_forbidden(df)
 
-    X, y = df.drop(columns=[target]), df[target].astype(float)
-
-    # Sanity: warn if any y < 0 (invalid for log1p), and clip to 0
-    if np.any(y < 0):
-        n_neg = int(np.sum(y < 0))
-        print(
-            f"⚠️  Found {n_neg} negative target value(s). They will be clipped to 0 for log1p."
-        )
-        y = y.clip(lower=0.0)
+    X, y = df.drop(columns=[target]), df[target]
 
     # Split BEFORE fitting any preprocessing to avoid leakage
     X_train, X_test, y_train, y_test = train_test_split(
@@ -363,35 +424,36 @@ def train_and_save_best(
     )
     print(f"📊 Train size: {len(X_train)} | Test size: {len(X_test)}")
 
-    # Candidate base models (to be wrapped with log1p/expm1)
-    base_models = {
-        "Linear Regression": LinearRegression(),
-        "Ridge Regression": Ridge(alpha=1.0),
-        "Lasso Regression": Lasso(alpha=0.001, max_iter=100000),
-        "Decision Tree": DecisionTreeRegressor(random_state=random_state),
-        "Random Forest": RandomForestRegressor(
-            n_estimators=300, random_state=random_state
+    # Strict inverse pair: works because y > 0 is guaranteed
+    pos_y = FunctionTransformer(func=np.log, inverse_func=np.exp, validate=False)
+
+    # Helper to wrap regressors
+    def ttr(reg):
+        return TransformedTargetRegressor(regressor=reg, transformer=pos_y)
+
+    # Candidate models (trained in log-space; predictions inverse-transformed to > 0)
+    models = {
+        "Linear Regression": ttr(LinearRegression()),
+        "Ridge Regression": ttr(Ridge(alpha=1.0)),
+        "Lasso Regression": ttr(Lasso(alpha=0.001, max_iter=100000)),
+        "Decision Tree": ttr(DecisionTreeRegressor(random_state=random_state)),
+        "Random Forest": ttr(
+            RandomForestRegressor(n_estimators=300, random_state=random_state)
         ),
-        "Extra Trees": ExtraTreesRegressor(n_estimators=300, random_state=random_state),
-        "Gradient Boosting": GradientBoostingRegressor(
-            n_estimators=300, random_state=random_state
+        "Extra Trees": ttr(
+            ExtraTreesRegressor(n_estimators=300, random_state=random_state)
         ),
-        "KNN Regressor": KNeighborsRegressor(n_neighbors=5),
-        "SVR (RBF Kernel)": SVR(kernel="rbf", C=100, gamma=0.1),
-        "MLP Regressor": MLPRegressor(
-            hidden_layer_sizes=(64, 32), max_iter=5000, random_state=random_state
+        "Gradient Boosting": ttr(
+            GradientBoostingRegressor(n_estimators=300, random_state=random_state)
+        ),
+        "KNN Regressor": ttr(KNeighborsRegressor(n_neighbors=5)),
+        "SVR (RBF Kernel)": ttr(SVR(kernel="rbf", C=100, gamma=0.1)),
+        "MLP Regressor": ttr(
+            MLPRegressor(
+                hidden_layer_sizes=(64, 32), max_iter=5000, random_state=random_state
+            )
         ),
     }
-
-    # Wrap all general-purpose models with non-negative target transform
-    models: Dict[str, BaseEstimator] = {
-        name: make_pos_ttr(est) for name, est in base_models.items()
-    }
-
-    # Add GLM for positive continuous target (Gamma; mean is strictly positive)
-    models.update(
-        {"Gamma Regressor (log-link)": GammaRegressor(alpha=1.0, max_iter=2000)}
-    )
 
     results = []  # collect stats for all models
     best_name, best_pipe, best_rmse = None, None, float("inf")
@@ -403,9 +465,7 @@ def train_and_save_best(
         pipe = Pipeline([("preprocess", pre), ("regressor", est)])
         pipe.fit(X_train, y_train)
 
-        preds = pipe.predict(X_test)
-        # Numerical safety; if you *require* strictly > 0, enforce that in your API layer.
-        preds = np.maximum(preds, 0.0)
+        preds = pipe.predict(X_test)  # already inverse-transformed to strictly > 0
         rmse = math.sqrt(mean_squared_error(y_test, preds))
         mae = mean_absolute_error(y_test, preds)
         r2 = r2_score(y_test, preds)
@@ -428,15 +488,28 @@ def train_and_save_best(
 
     # Save best pipeline
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = best_name.replace(" ", "_").replace("/", "_")
+    safe_name = best_name.replace(" ", "_")
     model_path = os.path.join(out_dir, f"best_model_{safe_name}_{ts}.joblib")
     joblib.dump(best_pipe, model_path)
     print(f"\n💾 Saved best model: {best_name} (RMSE={best_rmse:.4f}) → {model_path}")
 
-    # Extract weights of the best model for the meta JSON
-    best_weights = _extract_weights(best_pipe)
+    # Predictions for surrogate (if needed)
+    y_pred_train = best_pipe.predict(X_train)
+    y_pred_test = best_pipe.predict(X_test)
 
-    # Save full run metadata with all per-model test stats
+    # Extract final weights/params for the BEST fitted model
+    best_weights = extract_best_model_weights(best_pipe)
+    best_weights["model_label"] = best_name  # human-readable label
+
+    # If best is NOT linear, also provide a linear surrogate's final weights
+    linear_classes = {"LinearRegression", "Ridge", "Lasso"}
+    if best_weights.get("estimator_class") not in linear_classes:
+        surrogate = distill_linear_surrogate(
+            best_pipe, X_train, X_test, y_pred_train, y_pred_test, alpha=1.0
+        )
+        best_weights["surrogate_final_weights"] = surrogate
+
+    # Save full run metadata with all per-model test stats + weights/params
     meta = {
         "target": target,
         "random_state": random_state,
@@ -445,12 +518,13 @@ def train_and_save_best(
         "best_model": best_name,
         "best_test_rmse": float(best_rmse),
         "model_path": model_path,
-        "best_model_weights": best_weights,
         "all_results": results,  # full leaderboard-like stats
+        "best_model_weights": best_weights,
     }
     with open(os.path.join(out_dir, "run_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
     print(f"📝 Metadata saved → {os.path.join(out_dir, 'run_meta.json')}")
+    print(f"🔎 best_model_weights keys: {list(best_weights.keys())}")
 
     return best_pipe, meta
 
@@ -468,5 +542,4 @@ if __name__ == "__main__":
 
     df = pd.read_csv(csv_path)
     df = drop_forbidden(df)
-    # If your dataset has negatives, they are clipped to 0 before log1p.
     train_and_save_best(df, target="price_chf", out_dir=ARTIFACT_DIR)

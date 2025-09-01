@@ -2,139 +2,236 @@
   "target": "price_chf",
   "random_state": 42,
   "test_size": 0.2,
-  "created_at": "20250830_131509",
+  "created_at": "20250901_110012",
   "best_model": "Gradient Boosting",
-  "best_test_rmse": 45.258238298458295,
-  "model_path": "artifacts/best_model_Gradient_Boosting_20250830_131509.joblib",
-  "best_model_weights": {
-    "type": "feature_importances",
-    "wrapper": "TransformedTargetRegressor(log1p->expm1)",
-    "intercept": null,
-    "weights": [
-      {
-        "feature": "surface_m2",
-        "value": 0.15755627440949135
-      },
-      {
-        "feature": "num_rooms",
-        "value": 0.14964526068596654
-      },
-      {
-        "feature": "floor",
-        "value": 0.0010500079655972282
-      },
-      {
-        "feature": "dist_public_transport_km",
-        "value": 0.0034072566751533217
-      },
-      {
-        "feature": "proxim_hesso_km",
-        "value": 0.03863652584346348
-      },
-      {
-        "feature": "latitude",
-        "value": 0.004162973868776479
-      },
-      {
-        "feature": "longitude",
-        "value": 0.0037350748565812748
-      },
-      {
-        "feature": "type_entire_home",
-        "value": 0.20520611707581565
-      },
-      {
-        "feature": "type_room",
-        "value": 0.40127905019051036
-      },
-      {
-        "feature": "is_furnished",
-        "value": 0.021104924162662218
-      },
-      {
-        "feature": "wifi_incl",
-        "value": 0.002811636231128881
-      },
-      {
-        "feature": "charges_incl",
-        "value": 0.004703155960488853
-      },
-      {
-        "feature": "car_park",
-        "value": 0.0038356571646261874
-      },
-      {
-        "feature": "local_price_knn",
-        "value": 0.002866084909738087
-      }
-    ]
-  },
+  "best_test_rmse": 46.33899119785436,
+  "model_path": "artifacts/best_model_Gradient_Boosting_20250901_110012.joblib",
   "all_results": [
     {
       "model": "Linear Regression",
-      "Test_RMSE": 130.04784912160622,
-      "Test_MAE": 73.14797361678703,
-      "Test_R2": 0.91287830507079
+      "Test_RMSE": 130.3897351506005,
+      "Test_MAE": 73.29068595843614,
+      "Test_R2": 0.912419630164722
     },
     {
       "model": "Ridge Regression",
-      "Test_RMSE": 128.71349696519752,
-      "Test_MAE": 72.73780560288577,
-      "Test_R2": 0.9146569523483131
+      "Test_RMSE": 129.04941114172436,
+      "Test_MAE": 72.87886462922401,
+      "Test_R2": 0.9142109175689254
     },
     {
       "model": "Lasso Regression",
-      "Test_RMSE": 126.22350494244981,
-      "Test_MAE": 71.96152102654489,
-      "Test_R2": 0.9179269752805268
+      "Test_RMSE": 126.56024732901714,
+      "Test_MAE": 72.10424281281061,
+      "Test_R2": 0.9174884779941598
     },
     {
       "model": "Decision Tree",
-      "Test_RMSE": 84.98599884686887,
-      "Test_MAE": 65.89999999999998,
-      "Test_R2": 0.9627938498326807
+      "Test_RMSE": 87.82209289239242,
+      "Test_MAE": 66.56000000000002,
+      "Test_R2": 0.9602691795333982
     },
     {
       "model": "Random Forest",
-      "Test_RMSE": 51.87287727631044,
-      "Test_MAE": 39.73609567599516,
-      "Test_R2": 0.9861388059170418
+      "Test_RMSE": 51.94249097313305,
+      "Test_MAE": 39.9170718631403,
+      "Test_R2": 0.9861015773504663
     },
     {
       "model": "Extra Trees",
-      "Test_RMSE": 48.3866583761535,
-      "Test_MAE": 37.4656983720108,
-      "Test_R2": 0.9879393357033801
+      "Test_RMSE": 48.329074483074905,
+      "Test_MAE": 37.519295615328424,
+      "Test_R2": 0.9879680248822593
     },
     {
       "model": "Gradient Boosting",
-      "Test_RMSE": 45.258238298458295,
-      "Test_MAE": 34.70997212703663,
-      "Test_R2": 0.9894484743738308
+      "Test_RMSE": 46.33899119785436,
+      "Test_MAE": 36.08414650302446,
+      "Test_R2": 0.9889385230592267
     },
     {
       "model": "KNN Regressor",
-      "Test_RMSE": 445.6185962101536,
-      "Test_MAE": 299.2457846493881,
-      "Test_R2": -0.0229315668746759
+      "Test_RMSE": 445.65706182359247,
+      "Test_MAE": 299.25655575473627,
+      "Test_R2": -0.023108172558544027
     },
     {
       "model": "SVR (RBF Kernel)",
-      "Test_RMSE": 384.7138850121439,
-      "Test_MAE": 249.62132776416726,
-      "Test_R2": 0.23757752426871603
+      "Test_RMSE": 384.77374309527727,
+      "Test_MAE": 249.60932860382766,
+      "Test_R2": 0.2373402534028507
     },
     {
       "model": "MLP Regressor",
-      "Test_RMSE": 725.1980502448872,
-      "Test_MAE": 487.2509918986956,
-      "Test_R2": -1.7091510750168015
-    },
-    {
-      "model": "Gamma Regressor (log-link)",
-      "Test_RMSE": 223.38917140914296,
-      "Test_MAE": 156.68846417286167,
-      "Test_R2": 0.7429342586380131
+      "Test_RMSE": 907.9326670535166,
+      "Test_MAE": 566.576152718279,
+      "Test_R2": -3.2464621034393666
     }
-  ]
+  ],
+  "best_model_weights": {
+    "estimator_class": "GradientBoostingRegressor",
+    "params": {
+      "alpha": 0.9,
+      "ccp_alpha": 0.0,
+      "criterion": "friedman_mse",
+      "init": null,
+      "learning_rate": 0.1,
+      "loss": "squared_error",
+      "max_depth": 3,
+      "max_features": null,
+      "max_leaf_nodes": null,
+      "min_impurity_decrease": 0.0,
+      "min_samples_leaf": 1,
+      "min_samples_split": 2,
+      "min_weight_fraction_leaf": 0.0,
+      "n_estimators": 300,
+      "n_iter_no_change": null,
+      "random_state": 42,
+      "subsample": 1.0,
+      "tol": 0.0001,
+      "validation_fraction": 0.1,
+      "verbose": 0,
+      "warm_start": false
+    },
+    "note": "Estimator has no explicit coefficients; stored hyperparameters instead.",
+    "model_label": "Gradient Boosting",
+    "surrogate_final_weights": {
+      "surrogate_type": "Ridge",
+      "r2_against_best_logspace": 0.9621631447797685,
+      "feature_names": [
+        "surface_m2",
+        "num_rooms",
+        "floor",
+        "dist_public_transport_km",
+        "proxim_hesso_km",
+        "latitude",
+        "longitude",
+        "type_entire_home",
+        "type_room",
+        "is_furnished",
+        "wifi_incl",
+        "charges_incl",
+        "car_park",
+        "local_price_knn"
+      ],
+      "final_weights_logspace_labeled": [
+        {
+          "feature": "surface_m2",
+          "weight": 0.03198943355175237
+        },
+        {
+          "feature": "num_rooms",
+          "weight": -0.20498892192203919
+        },
+        {
+          "feature": "floor",
+          "weight": 0.003195460712380354
+        },
+        {
+          "feature": "dist_public_transport_km",
+          "weight": -0.1397478157786196
+        },
+        {
+          "feature": "proxim_hesso_km",
+          "weight": -0.008908639189793026
+        },
+        {
+          "feature": "latitude",
+          "weight": 0.38057199871332603
+        },
+        {
+          "feature": "longitude",
+          "weight": -0.0600863994737999
+        },
+        {
+          "feature": "type_entire_home",
+          "weight": 0.3443657395808613
+        },
+        {
+          "feature": "type_room",
+          "weight": -0.3443657395808962
+        },
+        {
+          "feature": "is_furnished",
+          "weight": 0.1453133711715159
+        },
+        {
+          "feature": "wifi_incl",
+          "weight": 0.06692392450161949
+        },
+        {
+          "feature": "charges_incl",
+          "weight": 0.07449937603110614
+        },
+        {
+          "feature": "car_park",
+          "weight": 0.10145349458924671
+        },
+        {
+          "feature": "local_price_knn",
+          "weight": 8.21313246103878e-08
+        }
+      ],
+      "final_effect_multipliers_price_space_labeled": [
+        {
+          "feature": "surface_m2",
+          "multiplier_per_unit": 1.032506595319974
+        },
+        {
+          "feature": "num_rooms",
+          "multiplier_per_unit": 0.8146563411878848
+        },
+        {
+          "feature": "floor",
+          "multiplier_per_unit": 1.0032005716394348
+        },
+        {
+          "feature": "dist_public_transport_km",
+          "multiplier_per_unit": 0.8695775014750609
+        },
+        {
+          "feature": "proxim_hesso_km",
+          "multiplier_per_unit": 0.9911309251609689
+        },
+        {
+          "feature": "latitude",
+          "multiplier_per_unit": 1.463121253600499
+        },
+        {
+          "feature": "longitude",
+          "multiplier_per_unit": 0.9416831691390769
+        },
+        {
+          "feature": "type_entire_home",
+          "multiplier_per_unit": 1.4110946343014403
+        },
+        {
+          "feature": "type_room",
+          "multiplier_per_unit": 0.708669692089796
+        },
+        {
+          "feature": "is_furnished",
+          "multiplier_per_unit": 1.1564018965108098
+        },
+        {
+          "feature": "wifi_incl",
+          "multiplier_per_unit": 1.0692141340823675
+        },
+        {
+          "feature": "charges_incl",
+          "multiplier_per_unit": 1.0773446712924823
+        },
+        {
+          "feature": "car_park",
+          "multiplier_per_unit": 1.1067784460088284
+        },
+        {
+          "feature": "local_price_knn",
+          "multiplier_per_unit": 1.000000082131328
+        }
+      ],
+      "intercept_log_price": -11.256148223146464,
+      "note": "Surrogate approximates the best model in log-price space. Multipliers are exp(weight_i): factor on price for +1 unit of feature i."
+    }
+  }
 }
